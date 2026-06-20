@@ -1,9 +1,9 @@
 {
-  "_comment": "The preset list of athletes to track. Edit this list, commit, and the next refresh picks up the change. Each entry is a full name (first last). Optionally use an object with an 'id' to disambiguate two athletes who share a name, e.g. {\"name\": \"Jack Smith\", \"id\": \"232067\"}.",
+  "_comment": "The preset list of athletes to track. Edit this list, commit, and the next refresh picks up the change. Each entry is a full name, optionally with the WNL athlete 'id' (the number shown after a name on the run-order pages) to disambiguate and pin the exact athlete.",
   "athletes": [
-    "Easton Fletcher",
-    "Mark Satterwhite",
-    "Josh Brown",
-    "Kane Casillas"
+    { "name": "Joshua Brown", "id": "137812" },
+    { "name": "Kane Casillas", "id": "197920" },
+    { "name": "Easton Fletcher", "id": "176499" },
+    { "name": "Mark Satterwhite", "id": "163269" }
   ]
 }

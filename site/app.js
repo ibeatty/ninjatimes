@@ -8,9 +8,16 @@ const state = {
   selected: new Set(),     // chip-selected athlete names
   filter: '',              // free-text filter
   sort: 'athlete',
-  groupDay: false,
   hideDnq: false,
   hideTba: false,
+};
+
+// Primary sort modes; each drives a grouping. Other columns can be clicked to
+// sort ad hoc (ungrouped). Sorting always breaks ties by wave start (sort_key).
+const SORT_MODES = {
+  athlete: { group: 'athlete' },     // group by athlete, then by wave start
+  wave_start: { group: 'day' },      // group by day of week, then by time
+  event: { group: 'event' },         // group by event, then by wave start
 };
 
 const $ = (sel) => document.querySelector(sel);
@@ -47,7 +54,7 @@ function applyUrlParams() {
   if (names) {
     state._urlAthletes = names.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
   }
-  if (p.get('sort') && ['athlete', 'time', 'event', 'division'].includes(p.get('sort'))) {
+  if (p.get('sort') && SORT_MODES[p.get('sort')]) {
     state.sort = p.get('sort');
     $('#sort').value = state.sort;
   }
@@ -161,21 +168,41 @@ function visibleRows() {
 }
 
 function comparator(mode) {
-  const byKey = (a, b) => (a.sort_key - b.sort_key);
   const evIdx = (r) => { const i = EVENT_ORDER.indexOf(r.event); return i < 0 ? 99 : i; };
   const num = (v) => { const n = parseInt(v, 10); return Number.isNaN(n) ? Infinity : n; };
-  switch (mode) {
-    case 'time': return byKey;
-    case 'event': return (a, b) => evIdx(a) - evIdx(b) || byKey(a, b);
-    case 'division': return (a, b) => a.division.localeCompare(b.division) || byKey(a, b);
-    case 'tier': return (a, b) => a.tier - b.tier || a.athlete.localeCompare(b.athlete) || byKey(a, b);
-    case 'rig': return (a, b) => a.rig.localeCompare(b.rig) || byKey(a, b);
-    case 'wave': return (a, b) => num(a.wave) - num(b.wave) || byKey(a, b);
-    case 'wave_start': return byKey;
-    case 'run_order': return (a, b) => num(a.run_order) - num(b.run_order) || byKey(a, b);
-    case 'athlete':
-    default: return (a, b) => a.athlete.localeCompare(b.athlete) || byKey(a, b);
-  }
+  const val = (r) => {
+    switch (mode) {
+      case 'event': return [evIdx(r), r.sort_key];
+      case 'wave_start': return [r.sort_key];
+      case 'division': return [r.division.toLowerCase(), r.sort_key];
+      case 'tier': return [r.tier, r.sort_key];
+      case 'rig': return [r.rig.toLowerCase(), r.sort_key];
+      case 'wave': return [num(r.wave), r.sort_key];
+      case 'run_order': return [num(r.run_order), r.sort_key];
+      case 'athlete':
+      default: return [r.athlete.toLowerCase(), r.sort_key];
+    }
+  };
+  return (a, b) => {
+    const va = val(a), vb = val(b);
+    for (let i = 0; i < Math.max(va.length, vb.length); i++) {
+      const x = va[i], y = vb[i];
+      if (x === undefined) return -1;
+      if (y === undefined) return 1;
+      if (typeof x === 'number' && typeof y === 'number') { if (x !== y) return x - y; }
+      else { const c = String(x).localeCompare(String(y)); if (c) return c; }
+    }
+    return 0;
+  };
+}
+
+function groupKind() { return (SORT_MODES[state.sort] || {}).group || null; }
+
+function groupLabel(r, kind) {
+  if (kind === 'athlete') return r.athlete;
+  if (kind === 'event') return r.event;
+  if (kind === 'day') return dayLabel(r);
+  return null;
 }
 
 function dayLabel(r) {
@@ -218,13 +245,14 @@ function render() {
   }).join('') + '</tr></thead>';
 
   let body = '';
-  let lastDay = null;
+  const kind = groupKind();
+  let lastGroup = null;
   for (const r of rows) {
-    if (state.groupDay) {
-      const d = dayLabel(r);
-      if (d !== lastDay) {
-        body += `<tr class="daygroup"><td colspan="${COLUMNS.length}">${esc(d)}</td></tr>`;
-        lastDay = d;
+    if (kind) {
+      const g = groupLabel(r, kind);
+      if (g !== lastGroup) {
+        body += `<tr class="daygroup"><td colspan="${COLUMNS.length}">${esc(g)}</td></tr>`;
+        lastGroup = g;
       }
     }
     body += `<tr class="${rowClass(r)}">` + COLUMNS.map((c) => {
@@ -245,8 +273,7 @@ function render() {
   $('#table-wrap').querySelectorAll('th[data-key]').forEach((th) => {
     th.addEventListener('click', () => {
       state.sort = th.dataset.key;
-      $('#sort').value = ['athlete', 'time', 'event', 'division'].includes(state.sort)
-        ? state.sort : $('#sort').value;
+      if (SORT_MODES[state.sort]) $('#sort').value = state.sort;
       render();
     });
   });
@@ -268,7 +295,6 @@ function init() {
   });
   $('#filter').addEventListener('input', (e) => { state.filter = e.target.value.toLowerCase(); render(); });
   $('#sort').addEventListener('change', (e) => { state.sort = e.target.value; render(); });
-  $('#group-day').addEventListener('change', (e) => { state.groupDay = e.target.checked; render(); });
   $('#hide-dnq').addEventListener('change', (e) => { state.hideDnq = e.target.checked; render(); });
   $('#hide-tba').addEventListener('change', (e) => { state.hideTba = e.target.checked; render(); });
   load();

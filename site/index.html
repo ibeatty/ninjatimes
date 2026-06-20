@@ -43,18 +43,16 @@
                autocomplete="off" autocapitalize="off" spellcheck="false">
       </div>
       <div class="control-block">
-        <label for="sort">Sort</label>
+        <label for="sort">Sort &amp; group by</label>
         <select id="sort" class="select">
-          <option value="athlete">Athlete, then time</option>
-          <option value="time">Time (chronological)</option>
+          <option value="athlete">Athlete</option>
+          <option value="wave_start">Wave start (day &amp; time)</option>
           <option value="event">Event</option>
-          <option value="division">Division</option>
         </select>
       </div>
     </div>
 
     <div class="toggles">
-      <label class="toggle"><input type="checkbox" id="group-day"> Group by day</label>
       <label class="toggle"><input type="checkbox" id="hide-dnq"> Hide non-qualified</label>
       <label class="toggle"><input type="checkbox" id="hide-tba"> Hide TBA</label>
     </div>

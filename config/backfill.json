@@ -1,0 +1,16 @@
+{
+  "_comment": "Manually supplied rows for events that already ran before the tool started scraping, and were dropped from WNL's 'upcoming only' pages, so the live scrape can't recover them. Each is applied as status 'completed' and only overrides a non-posted (TBA/absent) live result — never live posted data. Match is by athlete name + event.",
+  "rows": [
+    {
+      "athlete": "Easton Fletcher",
+      "athlete_id": "176499",
+      "tier": 1,
+      "division": "Mature Kids Male",
+      "event": "Stage 1",
+      "rig": "Stage 1 Small",
+      "wave": "8",
+      "wave_start": "Sat 3:53 PM",
+      "run_order": "19"
+    }
+  ]
+}

@@ -117,6 +117,15 @@ def sort_key(day_order: list[str], weekday: str | None, minutes: int | None) -> 
     return di * 10000 + (minutes if minutes is not None else 0)
 
 
+def sort_key_from_wave_start(day_order: list[str], wave_start: str) -> int:
+    """Same key, derived from a display string like 'Sat 3:53 PM' (used for backfill)."""
+    parts = (wave_start or "").split()
+    abbr = parts[0][:3].title() if parts else ""
+    weekday = next((d for d in day_order if d[:3] == abbr), None)
+    clk = P.parse_clock(wave_start)
+    return sort_key(day_order, weekday, clk[1] if clk else None)
+
+
 def wave_start_str(weekday: str | None, time_disp: str | None) -> str:
     wd = P.weekday_abbr(weekday)
     if wd and time_disp:
@@ -325,6 +334,41 @@ def merge_previous(result: dict, prev: dict | None) -> dict:
     return result
 
 
+def apply_backfill(result: dict, backfill: dict | None, day_order: list[str]) -> dict:
+    """Overlay manually supplied rows for events that ran before scraping began.
+
+    Only overrides a non-posted (TBA / absent) live result; never live posted data.
+    Matched by athlete name + event.
+    """
+    bf_rows = (backfill or {}).get("rows", [])
+    if not bf_rows:
+        return result
+    cur = result["rows"]
+    index = {}
+    for i, r in enumerate(cur):
+        index.setdefault((P.norm(r["athlete"]), r["event"]), i)
+
+    for bf in bf_rows:
+        key = (P.norm(bf["athlete"]), bf["event"])
+        row = {
+            "athlete": bf["athlete"], "athlete_id": bf.get("athlete_id"),
+            "tier": bf.get("tier"), "division": bf.get("division", ""),
+            "event": bf["event"], "rig": bf.get("rig", ""),
+            "wave": str(bf.get("wave", "")), "wave_start": bf.get("wave_start", ""),
+            "run_order": str(bf.get("run_order", "")),
+            "status": "completed",
+            "sort_key": sort_key_from_wave_start(day_order, bf.get("wave_start", "")),
+        }
+        if key in index:
+            if cur[index[key]].get("status") != "posted":
+                cur[index[key]] = row
+        else:
+            index[key] = len(cur)
+            cur.append(row)
+    result["counts"]["rows"] = len(cur)
+    return result
+
+
 def fetch_previous(settings: dict, fetcher: Fetcher) -> dict | None:
     url = settings.get("published_data_url")
     if not url:
@@ -365,6 +409,10 @@ def main(argv=None) -> int:
             result = merge_previous(result, prev)
     finally:
         fetcher.close()
+
+    bf_path = CONFIG_DIR / "backfill.json"
+    backfill = load_json(bf_path) if bf_path.exists() else None
+    result = apply_backfill(result, backfill, settings.get("event_day_order", []))
 
     result["rows"].sort(key=lambda r: (P.norm(r["athlete"]), r["sort_key"]))
 
