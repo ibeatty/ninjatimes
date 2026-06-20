@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import subprocess
 import sys
 import time
 from collections import Counter
@@ -21,8 +22,6 @@ from datetime import datetime, timezone
 from difflib import get_close_matches
 from pathlib import Path
 from urllib.parse import urljoin
-
-import httpx
 
 # Allow running as a script (python scraper/scrape.py) or as a module.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -60,75 +59,54 @@ def load_athletes(cfg: dict) -> list[dict]:
 
 # --- HTTP -------------------------------------------------------------------
 
-RETRY_STATUS = {403, 429, 500, 502, 503, 504}
+RETRY_STATUS = {"403", "408", "429", "500", "502", "503", "504"}
 
 
 class Fetcher:
-    """HTTP client with a Cloudflare-friendly warmup, browser headers, and retries.
+    """Fetches pages via `curl`, with retries.
 
-    worldninjaleague.org sits behind Cloudflare, which sporadically challenges
-    non-browser clients. Seeding cookies from the homepage first and retrying on
-    403/429/5xx with backoff makes scraping reliable.
+    We shell out to curl rather than using a Python HTTP client because
+    Cloudflare (in front of worldninjaleague.org) fingerprints the TLS/HTTP
+    client: from a datacenter IP it blocks Python clients (httpx) with 403 but
+    lets curl through with 200. curl works from both GitHub Actions and locally.
+    timing.ninjaworks.com is not behind Cloudflare but referer-gates its embeds.
     """
 
     def __init__(self, settings: dict):
+        self.ua = settings.get("user_agent", "Mozilla/5.0")
         self.referer = settings.get("referer", "")
         self.delay = float(settings.get("request_delay_seconds", 0.75))
+        self.timeout = int(settings.get("request_timeout_seconds", 30))
         self.max_retries = int(settings.get("max_retries", 4))
-        self.client = httpx.Client(
-            headers={
-                "User-Agent": settings.get("user_agent", "Mozilla/5.0"),
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-                "Accept-Language": "en-US,en;q=0.9",
-                "sec-ch-ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
-                "sec-ch-ua-mobile": "?0",
-                "sec-ch-ua-platform": '"macOS"',
-                "Sec-Fetch-Dest": "document",
-                "Sec-Fetch-Mode": "navigate",
-                "Sec-Fetch-Site": "none",
-                "Upgrade-Insecure-Requests": "1",
-            },
-            timeout=float(settings.get("request_timeout_seconds", 30)),
-            follow_redirects=True,
-        )
-        self._warmup(settings.get("base_url", ""))
-
-    def _warmup(self, base: str) -> None:
-        """Hit the homepage once to obtain Cloudflare's __cf_bm cookie."""
-        if not base:
-            return
-        try:
-            self.client.get(base)
-            time.sleep(self.delay)
-        except Exception as exc:  # noqa: BLE001
-            log.info("warmup failed (continuing): %s", exc)
 
     def get(self, url: str, referer: bool = False) -> str:
-        headers = {"Referer": self.referer} if referer and self.referer else {}
-        last: Exception | None = None
+        cmd = ["curl", "-sSL", "--compressed", "-A", self.ua,
+               "--max-time", str(self.timeout)]
+        if referer and self.referer:
+            cmd += ["-e", self.referer]
+        cmd += ["-w", "\n%{http_code}", url]
+
+        last = ""
         for attempt in range(self.max_retries):
-            try:
-                r = self.client.get(url, headers=headers)
-                if r.status_code in RETRY_STATUS:
-                    wait = 2 * (2 ** attempt)
-                    log.info("  %s -> HTTP %s, retrying in %ss", url, r.status_code, wait)
-                    last = httpx.HTTPStatusError(
-                        f"HTTP {r.status_code}", request=r.request, response=r)
-                    time.sleep(wait)
-                    continue
-                r.raise_for_status()
-                time.sleep(self.delay)
-                return r.text
-            except httpx.RequestError as exc:
-                wait = 2 * (2 ** attempt)
-                log.info("  %s -> %s, retrying in %ss", url, exc, wait)
-                last = exc
-                time.sleep(wait)
-        assert last is not None
-        raise last
+            proc = subprocess.run(cmd, capture_output=True, text=True)
+            if proc.returncode != 0:
+                last = f"curl exit {proc.returncode}: {proc.stderr.strip()[:120]}"
+            else:
+                body, _, code = proc.stdout.rpartition("\n")
+                code = code.strip()
+                if code.startswith("2"):
+                    time.sleep(self.delay)
+                    return body
+                last = f"HTTP {code}"
+                if code not in RETRY_STATUS:
+                    raise RuntimeError(f"{url}: {last}")
+            wait = 2 * (2 ** attempt)
+            log.info("  %s -> %s, retrying in %ss", url, last, wait)
+            time.sleep(wait)
+        raise RuntimeError(f"{url}: {last}")
 
     def close(self):
-        self.client.close()
+        pass
 
 
 # --- sort key ---------------------------------------------------------------

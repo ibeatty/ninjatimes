@@ -9,7 +9,7 @@ The official [WNL run-order pages](https://worldninjaleague.org/run-orders/) onl
 browse one rig at a time, with no search by athlete. Ninja Times scrapes them and flips the
 data around to be **per athlete**.
 
-- **Live site:** https://ibeatty.github.io/ninjatimes/
+- **Live site:** https://ianbeatty.com/ninjatimes/
 - **How fresh:** a GitHub Action re-scrapes every ~10 minutes during the event; the page shows
   the last-updated time and has a Refresh button.
 
