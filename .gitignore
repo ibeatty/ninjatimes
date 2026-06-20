@@ -1,0 +1,19 @@
+# Python / uv
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.uv/
+
+# Generated data (built in CI, deployed to Pages; not committed)
+site/data/*.json
+
+# Local scratch / fixtures captured during dev
+scraper/tests/fixtures/*.html
+/tmp_fixtures/
+
+# OS
+.DS_Store
+
+# Local Claude Code settings (machine-specific)
+.claude/settings.local.json

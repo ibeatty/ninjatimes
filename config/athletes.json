@@ -1,0 +1,9 @@
+{
+  "_comment": "The preset list of athletes to track. Edit this list, commit, and the next refresh picks up the change. Each entry is a full name (first last). Optionally use an object with an 'id' to disambiguate two athletes who share a name, e.g. {\"name\": \"Jack Smith\", \"id\": \"232067\"}.",
+  "athletes": [
+    "Easton Fletcher",
+    "Mark Satterwhite",
+    "Josh Brown",
+    "Kane Casillas"
+  ]
+}

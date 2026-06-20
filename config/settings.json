@@ -1,0 +1,21 @@
+{
+  "year": 2026,
+  "base_url": "https://worldninjaleague.org",
+  "schedule_path": "/tier-1-championships/",
+  "referer": "https://worldninjaleague.org/",
+  "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  "request_delay_seconds": 0.75,
+  "request_timeout_seconds": 30,
+  "events": ["Stage 1", "Stage 2", "Stage 3", "DC"],
+  "qualifying_events": ["Stage 2", "Stage 3"],
+  "include_h2h": false,
+  "event_day_order": [
+    "Thursday",
+    "Friday",
+    "Saturday",
+    "Sunday",
+    "Monday",
+    "Tuesday"
+  ],
+  "published_data_url": "https://ibeatty.github.io/ninjatimes/data/athletes.json"
+}

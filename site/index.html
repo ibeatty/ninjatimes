@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ninja Times — WNL Championship run orders</title>
+<meta name="description" content="Athlete-centric run orders, wave start times, and positions for the World Ninja League Championships.">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="title">
+    <span class="logo" aria-hidden="true">🥷</span>
+    <div>
+      <h1>Ninja Times</h1>
+      <p class="tagline">WNL Championship run orders, by athlete</p>
+    </div>
+  </div>
+  <div class="freshness">
+    <span id="updated" class="updated" title="">Loading…</span>
+    <button id="reload" class="btn" type="button">↻ Refresh</button>
+  </div>
+</header>
+
+<main>
+  <section class="controls" aria-label="Filters">
+    <div class="control-block">
+      <div class="control-head">
+        <label>Athletes</label>
+        <div class="mini-btns">
+          <button id="select-all" class="btn btn-mini" type="button">All</button>
+          <button id="select-none" class="btn btn-mini" type="button">Clear</button>
+        </div>
+      </div>
+      <div id="chips" class="chips" role="group" aria-label="Athlete selection"></div>
+    </div>
+
+    <div class="control-row">
+      <div class="control-block grow">
+        <label for="filter">Find by name</label>
+        <input id="filter" class="text-input" type="search"
+               placeholder="Type a name, or several separated by commas…"
+               autocomplete="off" autocapitalize="off" spellcheck="false">
+      </div>
+      <div class="control-block">
+        <label for="sort">Sort</label>
+        <select id="sort" class="select">
+          <option value="athlete">Athlete, then time</option>
+          <option value="time">Time (chronological)</option>
+          <option value="event">Event</option>
+          <option value="division">Division</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="toggles">
+      <label class="toggle"><input type="checkbox" id="group-day"> Group by day</label>
+      <label class="toggle"><input type="checkbox" id="hide-dnq"> Hide non-qualified</label>
+      <label class="toggle"><input type="checkbox" id="hide-tba"> Hide TBA</label>
+    </div>
+  </section>
+
+  <div id="unmatched" class="banner" hidden></div>
+  <div id="summary" class="summary" aria-live="polite"></div>
+  <div id="table-wrap" class="table-wrap"></div>
+  <div id="empty" class="empty" hidden>No rows match the current filters.</div>
+</main>
+
+<footer class="site-footer">
+  <div class="legend">
+    <span class="lg"><i class="dot dot-posted"></i> Posted</span>
+    <span class="lg"><i class="dot dot-tba"></i> TBA (not yet posted)</span>
+    <span class="lg"><i class="dot dot-dnq"></i> Did not qualify</span>
+    <span class="lg"><i class="dot dot-done"></i> Already ran</span>
+  </div>
+  <p class="src">
+    Data scraped from the public WNL run-order pages. Times are local to the event.
+    Not affiliated with the World Ninja League.
+  </p>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>

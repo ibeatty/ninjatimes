@@ -1,0 +1,56 @@
+name: Refresh run orders
+
+# Scrapes the WNL run orders and deploys the static site to GitHub Pages.
+# Runs on a schedule during the event, on demand, and on relevant pushes.
+
+on:
+  schedule:
+    # Every 10 minutes. GitHub may delay scheduled runs under load.
+    # After the championships, disable this (comment it out) or widen the interval.
+    - cron: '*/10 * * * *'
+  workflow_dispatch: {}        # the manual "Run workflow" button = force a refresh
+  push:
+    branches: [main]
+    paths:
+      - 'scraper/**'
+      - 'site/**'
+      - 'config/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.github/workflows/refresh.yml'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow one concurrent deployment; don't cancel an in-progress deploy.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Scrape run orders -> site/data/
+        run: uv run python scraper/scrape.py -v
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
