@@ -6,7 +6,6 @@ const EVENT_ORDER = ['Stage 1', 'Stage 2', 'Stage 3', 'DC'];
 const state = {
   data: null,
   selected: new Set(),     // chip-selected athlete names
-  filter: '',              // free-text filter
   sort: 'athlete',
   hideDnq: false,
   hideTba: false,
@@ -134,32 +133,17 @@ function renderUnmatched() {
   banner.hidden = false;
   const parts = list.map((u) => {
     const sugg = (u.suggestions || []).length
-      ? ' — did you mean ' + u.suggestions.map((s) =>
-          `<a data-name="${esc(s)}">${esc(s)}</a>`).join(', ') + '?'
+      ? ` — did you mean ${u.suggestions.map(esc).join(', ')}?`
       : '';
     return `<b>${esc(u.name)}</b>${sugg}`;
   });
   banner.innerHTML = `No current data for: ${parts.join('; ')}`;
-  banner.querySelectorAll('a[data-name]').forEach((a) => {
-    a.addEventListener('click', () => {
-      $('#filter').value = a.dataset.name;
-      state.filter = a.dataset.name.toLowerCase();
-      render();
-    });
-  });
 }
 
 // --- filtering & sorting ----------------------------------------------------
 
 function visibleRows() {
-  const terms = state.filter.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
-  let rows = state.data.rows.slice();
-
-  if (terms.length) {
-    rows = rows.filter((r) => terms.some((t) => r.athlete.toLowerCase().includes(t)));
-  } else {
-    rows = rows.filter((r) => state.selected.has(r.athlete));
-  }
+  let rows = state.data.rows.filter((r) => state.selected.has(r.athlete));
   if (state.hideDnq) rows = rows.filter((r) => r.status !== 'did_not_qualify');
   if (state.hideTba) rows = rows.filter((r) => r.status !== 'tba');
 
@@ -293,7 +277,6 @@ function init() {
     document.querySelectorAll('.chip').forEach((c) => c.setAttribute('aria-pressed', 'false'));
     render();
   });
-  $('#filter').addEventListener('input', (e) => { state.filter = e.target.value.toLowerCase(); render(); });
   $('#sort').addEventListener('change', (e) => { state.sort = e.target.value; render(); });
   $('#hide-dnq').addEventListener('change', (e) => { state.hideDnq = e.target.checked; render(); });
   $('#hide-tba').addEventListener('change', (e) => { state.hideTba = e.target.checked; render(); });
