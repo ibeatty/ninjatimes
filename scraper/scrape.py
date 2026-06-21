@@ -236,6 +236,7 @@ def build(settings: dict, athletes: list[dict], fetcher: Fetcher,
 
         for pid, group in by_person.items():
             display = group[0]["name"]
+            person_id = group[0]["athlete_id"]
             tier = group[0]["tier"]
             div_key = Counter(g["division_key"] for g in group).most_common(1)[0][0]
             division = next(g["division"] for g in group if g["division_key"] == div_key)
@@ -254,7 +255,7 @@ def build(settings: dict, athletes: list[dict], fetcher: Fetcher,
                         ws = wave_start_str(sched.weekday, sched.start_disp)
                         wd, tmin = sched.weekday, sched.start_min
                     rows.append({
-                        "athlete": display, "athlete_id": pid if pid != spec["name_key"] else a["athlete_id"],
+                        "athlete": display, "athlete_id": person_id,
                         "tier": tier, "division": division, "event": event,
                         "rig": a["rig"] or (sched.rig if sched else ""),
                         "wave": str(a["wave"]) if a["wave"] is not None else "",
@@ -268,7 +269,7 @@ def build(settings: dict, athletes: list[dict], fetcher: Fetcher,
                         # qualifying stage posted for this division, athlete absent
                         # -> did not qualify
                         rows.append({
-                            "athlete": display, "athlete_id": None,
+                            "athlete": display, "athlete_id": person_id,
                             "tier": tier, "division": division, "event": event,
                             "rig": sched.rig, "wave": "", "wave_start": "",
                             "run_order": "", "status": "did_not_qualify",
@@ -277,7 +278,7 @@ def build(settings: dict, athletes: list[dict], fetcher: Fetcher,
                     else:
                         # not yet posted -> TBA, show overall event start time
                         rows.append({
-                            "athlete": display, "athlete_id": None,
+                            "athlete": display, "athlete_id": person_id,
                             "tier": tier, "division": division, "event": event,
                             "rig": sched.rig,
                             "wave": "TBA",
@@ -463,16 +464,30 @@ def add_results_data(result: dict, settings: dict, fetcher: Fetcher,
     return result
 
 
-def assign_places(result: dict) -> None:
-    """Set each row's ``place`` from its event's finalized results (else blank)."""
+def assign_places(result: dict, qualifying: set[str]) -> None:
+    """Set each row's ``place`` from its event's finalized results.
+
+    Also reclassify rows still marked TBA only because the athlete was added after
+    their event ran: if the event's results are final, a placed athlete becomes
+    ``completed`` and one absent from a finalized qualifier becomes
+    ``did_not_qualify`` (run-order-based detection can't see this post-event).
+    """
     state = result.get("results_state", {})
     for row in result["rows"]:
         key = f"{row.get('tier')}|{P.norm(row['division'])}|{row['event']}"
         st = state.get(key) or {}
-        row["event_final"] = bool(st.get("final"))
+        final = bool(st.get("final"))
+        row["event_final"] = final
         row["event_in_progress"] = bool(st.get("in_progress"))
-        row["place"] = (st.get("places", {}).get(row.get("athlete_id") or "", "")
-                        if st.get("final") else "")
+        place = st.get("places", {}).get(row.get("athlete_id") or "", "") if final else ""
+        row["place"] = place
+        if final and row["status"] == "tba":
+            if place:
+                row["status"] = "completed"
+            elif row["event"] in qualifying:
+                row["status"] = "did_not_qualify"
+            else:
+                row["status"] = "completed"
 
 
 # --- main -------------------------------------------------------------------
@@ -522,7 +537,7 @@ def main(argv=None) -> int:
     backfill = load_json(bf_path) if bf_path.exists() else None
     result = apply_backfill(result, backfill, settings.get("event_day_order", []))
 
-    assign_places(result)
+    assign_places(result, set(settings.get("qualifying_events", ["Stage 2", "Stage 3"])))
     result.pop("_run_remaining", None)
     result["rows"].sort(key=lambda r: (P.norm(r["athlete"]), r["sort_key"]))
 
