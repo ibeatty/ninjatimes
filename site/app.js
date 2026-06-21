@@ -30,6 +30,8 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) =>
 // --- load -------------------------------------------------------------------
 
 async function load() {
+  const prevGenerated = state.data && state.data.generated_at;
+  setRefreshing(true);
   $('#updated').textContent = 'Loading…';
   try {
     const res = await fetch(`${DATA_URL}?cb=${Date.now()}`, { cache: 'no-store' });
@@ -41,6 +43,8 @@ async function load() {
       `<div class="empty">Failed to load run-order data (${esc(err.message)}).<br>
        Try refreshing in a moment.</div>`;
     return;
+  } finally {
+    setRefreshing(false);
   }
   applyUrlParams();
   syncControls();
@@ -48,6 +52,29 @@ async function load() {
   renderFreshness();
   renderUnmatched();
   render();
+  // Acknowledge the refresh even when the data is unchanged, so a successful
+  // click is never mistaken for a dead button.
+  flashUpdated(prevGenerated && state.data.generated_at === prevGenerated);
+}
+
+// Busy state for the Refresh button: disabled + label swap while a load runs.
+function setRefreshing(on) {
+  const btn = $('#reload');
+  if (!btn) return;
+  btn.disabled = on;
+  btn.classList.toggle('loading', on);
+  btn.textContent = on ? '↻ Refreshing…' : '↻ Refresh';
+}
+
+// Briefly highlight the freshness label so a completed refresh is visible even
+// when the rebuilt data is byte-for-byte identical to what was already shown.
+function flashUpdated(unchanged) {
+  const el = $('#updated');
+  if (!el) return;
+  el.classList.remove('flash');
+  void el.offsetWidth;            // restart the CSS animation
+  el.classList.add('flash');
+  if (unchanged) el.title = `Already up to date (checked ${new Date().toLocaleTimeString()})`;
 }
 
 // Reflect current state into the controls (so defaults + URL params show correctly).
