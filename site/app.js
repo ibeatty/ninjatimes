@@ -1,7 +1,10 @@
 'use strict';
 
 const DATA_URL = 'data/athletes.json';
-const EVENT_ORDER = ['Stage 1', 'Stage 2', 'Stage 3', 'DC'];
+const EVENT_ORDER = ['Stage 1', 'Stage 2', 'Stage 3', 'DC', 'Head to Head'];
+
+// Tier badge: numeric tiers show as T1/T2; H2H carries tier "H2" already.
+const tierLabel = (r) => (typeof r.tier === 'number' ? 'T' + r.tier : esc(r.tier));
 
 const state = {
   data: null,
@@ -211,7 +214,7 @@ function dayLabel(r) {
 
 const COLUMNS = [
   { key: 'athlete', label: 'Athlete', cls: 'athlete-cell' },
-  { key: 'tier', label: 'Tier', html: (r) => `<span class="tier-badge">T${esc(r.tier)}</span>` },
+  { key: 'tier', label: 'Tier', html: (r) => `<span class="tier-badge">${tierLabel(r)}</span>` },
   { key: 'division', label: 'Division' },
   { key: 'event', label: 'Event', html: (r) => `${esc(r.event)}${statusPill(r)}` },
   { key: 'rig', label: 'Rig' },
@@ -256,7 +259,7 @@ function runOrderShort(r) {
 
 // Compact mobile card: name + three dense lines (no labels).
 function cardHtml(r) {
-  const l1 = `T${esc(r.tier)} &middot; ${esc(r.division)} &middot; ${esc(r.event)}${statusPill(r)}`;
+  const l1 = `${tierLabel(r)} &middot; ${esc(r.division)} &middot; ${esc(r.event)}${statusPill(r)}`;
   const l2 = [esc(r.rig), r.wave ? `Wave ${esc(r.wave)}` : ''].filter(Boolean).join(' &middot; ');
   const waveStart = r.wave_start ? `${waveIcon(r)}${esc(r.wave_start)}` : '';
   const l3 = [waveStart, runOrderShort(r), placeCell(r)].filter(Boolean).join(' &middot; ');

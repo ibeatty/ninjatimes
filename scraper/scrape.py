@@ -530,6 +530,54 @@ def assign_places(result: dict, qualifying: set[str]) -> None:
                 row["status"] = "completed"
 
 
+# --- head-to-head -----------------------------------------------------------
+
+def add_h2h_rows(result: dict, settings: dict, fetcher: Fetcher,
+                 athletes: list[dict], day_order: list[str]) -> None:
+    """Add Head-to-Head rows — a track parallel to the tiers.
+
+    H2H has one embed with a wave per division; the listed order is the H2H
+    seeding (used as the run order). Tier is shown as "H2"; rig and wave are blank.
+    """
+    path = settings.get("h2h_page")
+    if not path:
+        return
+    try:
+        src = P.extract_embed_src(fetcher.get(urljoin(settings["base_url"], path)))
+        if not src:
+            return
+        page = P.parse_embed(fetcher.get(src, referer=True))
+    except Exception as exc:  # noqa: BLE001 — H2H is a bonus; never sink the run
+        log.warning("H2H scrape failed: %s", exc)
+        return
+
+    by_id: dict[str, P.EmbedRow] = {}
+    by_name: dict[str, P.EmbedRow] = {}
+    for r in page.rows:
+        if r.athlete_id:
+            by_id.setdefault(r.athlete_id, r)
+        by_name.setdefault(r.name_key, r)
+
+    added = 0
+    for spec in athletes:
+        r = by_id.get(spec["id"]) if spec.get("id") else None
+        if r is None:
+            r = by_name.get(spec["name_key"])
+        if r is None:
+            continue
+        result["rows"].append({
+            "athlete": r.name, "athlete_id": r.athlete_id,
+            "tier": "H2", "division": r.division, "event": "Head to Head",
+            "rig": "", "wave": "", "wave_start": wave_start_str(r.weekday, r.time_disp),
+            "run_order": str(r.position), "status": "posted",
+            "sort_key": sort_key(day_order, r.weekday, r.time_min),
+        })
+        added += 1
+        log.info("  H2H: %s (%s) seed %d %s",
+                 r.name, r.division, r.position, wave_start_str(r.weekday, r.time_disp))
+    result["counts"]["rows"] = len(result["rows"])
+
+
 # --- main -------------------------------------------------------------------
 
 def main(argv=None) -> int:
@@ -568,6 +616,7 @@ def main(argv=None) -> int:
         except Exception as exc:  # noqa: BLE001 — results are a bonus; never sink the run
             log.warning("results stage failed (continuing without placements): %s", exc)
             result.setdefault("results_state", {})
+        add_h2h_rows(result, settings, fetcher, athletes, settings.get("event_day_order", []))
     finally:
         fetcher.close()
 
