@@ -304,6 +304,16 @@ def build(settings: dict, athletes: list[dict], fetcher: Fetcher,
     # means everyone has run (a precondition for finalizing that event's results).
     run_remaining = Counter((a["tier"], a["division_key"], a["event"]) for a in appearances)
     result["_run_remaining"] = {f"{t}|{d}|{e}": n for (t, d, e), n in run_remaining.items()}
+    # Lowest wave number still in each run order = the wave currently running. An
+    # athlete whose wave equals it is mid-wave; a higher wave is still upcoming.
+    current_wave: dict[str, int] = {}
+    for a in appearances:
+        if a["wave"] is None:
+            continue
+        k = f'{a["tier"]}|{a["division_key"]}|{a["event"]}'
+        if k not in current_wave or a["wave"] < current_wave[k]:
+            current_wave[k] = a["wave"]
+    result["_current_wave"] = current_wave
     return result
 
 
@@ -447,16 +457,16 @@ def add_results_data(result: dict, settings: dict, fetcher: Fetcher,
             json.dumps(sorted(all_places.items())).encode()).hexdigest()[:12] if all_places else ""
 
         pst = prev_state.get(key, {})
-        if pst.get("final"):  # latched — freeze the previously recorded placements
-            state[key] = {"final": True, "in_progress": False,
+        if pst.get("final"):  # latched — keep frozen placements, add any new athletes
+            state[key] = {"final": True, "in_progress": False, "started": True,
                           "hash": pst.get("hash", digest),
-                          "places": pst.get("places", my_places)}
+                          "places": {**pst.get("places", {}), **my_places}}
         else:
             empty_runorder = run_remaining.get(key, 0) == 0
             stable = bool(all_places) and digest == pst.get("hash")
             final = bool(all_places) and empty_runorder and stable
             state[key] = {"final": final, "in_progress": (not final and bool(all_places)),
-                          "hash": digest, "places": my_places}
+                          "started": bool(all_places), "hash": digest, "places": my_places}
         log.info("  results %-34s finishers=%-3d final=%s",
                  key, len(all_places), state[key]["final"])
 
@@ -473,16 +483,36 @@ def assign_places(result: dict, qualifying: set[str]) -> None:
     ``did_not_qualify`` (run-order-based detection can't see this post-event).
     """
     state = result.get("results_state", {})
+    current_wave = result.get("_current_wave", {})
     for row in result["rows"]:
         key = f"{row.get('tier')}|{P.norm(row['division'])}|{row['event']}"
         st = state.get(key) or {}
         final = bool(st.get("final"))
+        places = st.get("places", {})
+        aid = row.get("athlete_id") or ""
+        has_run = aid in places                 # athlete appears in the live results
         row["event_final"] = final
         row["event_in_progress"] = bool(st.get("in_progress"))
-        place = st.get("places", {}).get(row.get("athlete_id") or "", "") if final else ""
-        row["place"] = place
+        row["has_run"] = has_run
+        row["place"] = places.get(aid, "") if final else ""
+
+        try:
+            wn = int(row.get("wave"))
+        except (TypeError, ValueError):
+            wn = None
+        if has_run:
+            row["wave_state"] = "over"            # their wave is done
+        elif wn is not None and st.get("started") and current_wave.get(key) == wn:
+            row["wave_state"] = "in_progress"     # their wave is the one running now
+        elif wn is not None:
+            row["wave_state"] = "upcoming"
+        else:
+            row["wave_state"] = ""
+
+        # A row still marked TBA only because the athlete was added after their
+        # event ran: reclassify from the finalized results.
         if final and row["status"] == "tba":
-            if place:
+            if row["place"]:
                 row["status"] = "completed"
             elif row["event"] in qualifying:
                 row["status"] = "did_not_qualify"
@@ -539,6 +569,7 @@ def main(argv=None) -> int:
 
     assign_places(result, set(settings.get("qualifying_events", ["Stage 2", "Stage 3"])))
     result.pop("_run_remaining", None)
+    result.pop("_current_wave", None)
     result["rows"].sort(key=lambda r: (P.norm(r["athlete"]), r["sort_key"]))
 
     args.out.mkdir(parents=True, exist_ok=True)

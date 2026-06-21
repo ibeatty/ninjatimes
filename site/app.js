@@ -9,7 +9,7 @@ const state = {
   sort: 'wave_start',      // default: chronological, grouped by day
   hideDnq: true,
   hideTba: false,
-  hidePast: false,
+  hideCompleted: true,     // hide events whose results are final
 };
 
 // Primary sort modes; each drives a grouping. Other columns can be clicked to
@@ -52,7 +52,7 @@ function syncControls() {
   $('#sort').value = state.sort;
   $('#hide-dnq').checked = state.hideDnq;
   $('#hide-tba').checked = state.hideTba;
-  $('#hide-past').checked = state.hidePast;
+  $('#hide-completed').checked = state.hideCompleted;
 }
 
 // --- url params -------------------------------------------------------------
@@ -156,7 +156,7 @@ function visibleRows() {
   let rows = state.data.rows.filter((r) => state.selected.has(r.athlete));
   if (state.hideDnq) rows = rows.filter((r) => r.status !== 'did_not_qualify');
   if (state.hideTba) rows = rows.filter((r) => r.status !== 'tba');
-  if (state.hidePast) rows = rows.filter((r) => !r.event_final);
+  if (state.hideCompleted) rows = rows.filter((r) => !r.event_final);
 
   rows.sort(comparator(state.sort));
   return rows;
@@ -216,34 +216,50 @@ const COLUMNS = [
   { key: 'event', label: 'Event', html: (r) => `${esc(r.event)}${statusPill(r)}` },
   { key: 'rig', label: 'Rig' },
   { key: 'wave', label: 'Wave', cls: 'num' },
-  { key: 'wave_start', label: 'Wave start' },
-  { key: 'run_order', label: 'Run order', cls: 'num' },
+  { key: 'wave_start', label: 'Wave start', html: (r) => `${waveIcon(r)}${esc(r.wave_start)}` },
+  { key: 'run_order', label: 'Run order', cls: 'num', html: (r) => runOrderCell(r) },
   { key: 'place', label: 'Place', cls: 'num', html: (r) => placeCell(r) },
 ];
 
 function placeCell(r) {
-  const p = r.place;
-  if (p) {                                 // finalized placement
-    const medal = { '1': '🥇', '2': '🥈', '3': '🥉' }[String(p)] || '';
-    return `<span class="place">${medal ? medal + ' ' : ''}${esc(p)}</span>`;
+  if (r.event_final && r.place) {            // finalized placement
+    const medal = { '1': '🥇', '2': '🥈', '3': '🥉' }[String(r.place)] || '';
+    return `<span class="place">${medal ? medal + ' ' : ''}${esc(r.place)}</span>`;
   }
-  if (r.event_in_progress) {               // underway — standings changing live
-    return '<span class="inprogress" title="In progress — standings changing live" aria-label="in progress"></span>';
+  if (r.has_run && !r.event_final) {         // ran, but the event isn't over
+    return '<span class="pending" title="Finished — awaiting final standings">⏳</span>';
   }
-  return '';                               // not started yet
+  return '';
 }
 
-function runOrderShort(ro) {
+// Icon shown immediately before the wave-start time.
+function waveIcon(r) {
+  if (r.wave_state === 'in_progress') return '<span class="inprogress" title="Wave in progress"></span> ';
+  if (r.wave_state === 'over') return '<span class="wave-done" title="Wave complete">✓</span> ';
+  return '';
+}
+
+// Run order with a green check once the athlete has run (table cell).
+function runOrderCell(r) {
+  const ro = String(r.run_order ?? '');
+  const check = (r.has_run && /^\d+$/.test(ro)) ? ' <span class="ran-check" title="Has run">✓</span>' : '';
+  return `${esc(ro)}${check}`;
+}
+
+// Run order for the compact card (#N, with the same check).
+function runOrderShort(r) {
+  const ro = String(r.run_order ?? '');
   if (!ro || ro === 'n/a') return '';
-  return ro === 'TBA' ? 'TBA' : '#' + esc(ro);
+  if (ro === 'TBA') return 'TBA';
+  return '#' + esc(ro) + (r.has_run ? ' <span class="ran-check">✓</span>' : '');
 }
 
 // Compact mobile card: name + three dense lines (no labels).
 function cardHtml(r) {
   const l1 = `T${esc(r.tier)} &middot; ${esc(r.division)} &middot; ${esc(r.event)}${statusPill(r)}`;
   const l2 = [esc(r.rig), r.wave ? `Wave ${esc(r.wave)}` : ''].filter(Boolean).join(' &middot; ');
-  const l3 = [esc(r.wave_start), runOrderShort(r.run_order), placeCell(r)]
-    .filter(Boolean).join(' &middot; ');
+  const waveStart = r.wave_start ? `${waveIcon(r)}${esc(r.wave_start)}` : '';
+  const l3 = [waveStart, runOrderShort(r), placeCell(r)].filter(Boolean).join(' &middot; ');
   return `<div class="card ${rowClass(r)}">
     <div class="card-name">${esc(r.athlete)}</div>
     <div class="card-line">${l1}</div>
@@ -327,7 +343,7 @@ function init() {
   $('#sort').addEventListener('change', (e) => { state.sort = e.target.value; render(); });
   $('#hide-dnq').addEventListener('change', (e) => { state.hideDnq = e.target.checked; render(); });
   $('#hide-tba').addEventListener('change', (e) => { state.hideTba = e.target.checked; render(); });
-  $('#hide-past').addEventListener('change', (e) => { state.hidePast = e.target.checked; render(); });
+  $('#hide-completed').addEventListener('change', (e) => { state.hideCompleted = e.target.checked; render(); });
   // Keep the "updated … ago" label ticking without a reload.
   setInterval(() => { if (state.data) renderFreshness(); }, 60000);
   load();

@@ -135,6 +135,9 @@ tr.row-done td { color: var(--done); }
 .tier-badge { display:inline-block; min-width: 18px; text-align:center; padding:1px 6px; border-radius:6px; background: var(--panel-2); border:1px solid var(--line); font-size:12px; }
 .place { font-weight: 700; }
 tr.row-dnq td.num .place, tr.row-tba td .place { font-weight: 600; }
+.wave-done { color: var(--accent-2) !important; font-weight: 700; }  /* wave complete (matches the spinner) */
+.ran-check { color: var(--posted) !important; font-weight: 700; }    /* green: athlete has run */
+.pending { white-space: nowrap; }                                    /* hourglass */
 
 /* --- footer --- */
 .site-footer { max-width: 1100px; margin: 22px auto 0; padding: 0 16px; color: var(--muted); }
