@@ -148,30 +148,37 @@ tr.row-dnq td.num .place, tr.row-tba td .place { font-weight: 600; }
 .src { font-size: 11.5px; color: var(--faint); margin-top: 10px; }
 .empty { text-align: center; color: var(--muted); padding: 40px 0; }
 
-/* --- mobile: table rows become cards --- */
+/* in-progress spinner (Place column / card) */
+.inprogress {
+  display: inline-block; width: 12px; height: 12px; vertical-align: -1px;
+  border: 2px solid var(--accent-2); border-top-color: transparent;
+  border-radius: 50%; animation: spin 0.9s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* --- compact cards: hidden on desktop, shown on mobile --- */
+.cards { display: none; }
+.cards .group-head {
+  color: var(--accent-2); font-weight: 700; font-size: 12px;
+  text-transform: uppercase; letter-spacing: .6px; margin: 12px 2px 6px;
+}
+.card {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  padding: 9px 14px; margin-bottom: 8px; box-shadow: var(--shadow);
+}
+.card-name { font-weight: 700; font-size: 16px; margin-bottom: 3px; }
+.card-line { font-size: 14px; line-height: 1.55; }
+.card-line.dim { color: var(--muted); }
+.card-line .place { font-weight: 700; }
+.card.row-tba .card-line { color: var(--muted); }
+.card.row-done .card-name, .card.row-done .card-line { color: var(--done); }
+.card.row-dnq .card-name, .card.row-dnq .card-line {
+  color: var(--faint); text-decoration: line-through; text-decoration-color: var(--dnq);
+}
+.card .keep { text-decoration: none; }
+
 @media (max-width: 640px) {
-  thead { display: none; }
   .toggles { padding-bottom: 0; }
-  table, tbody, tr, td { display: block; width: 100%; }
-  tbody tr {
-    background: var(--panel); border: 1px solid var(--line);
-    border-radius: 12px; margin-bottom: 10px; padding: 6px 4px; box-shadow: var(--shadow);
-  }
-  tbody tr:hover { background: var(--panel); }
-  tbody td { border: none; padding: 5px 14px; display: flex; justify-content: space-between; gap: 14px; }
-  tbody td::before {
-    content: attr(data-label); color: var(--muted);
-    font-size: 11px; text-transform: uppercase; letter-spacing: .5px; font-weight: 700;
-    flex: 0 0 auto;
-  }
-  tbody td.athlete-cell {
-    font-size: 16px; padding: 8px 14px 4px; border-bottom: 1px solid var(--line);
-    margin-bottom: 4px; justify-content: flex-start;
-  }
-  tbody td.athlete-cell::before { content: ""; }
-  .daygroup { margin: 4px 0 8px; }
-  .daygroup td { border-radius: 8px; padding: 7px 12px; }
-  .daygroup td::before { content: ""; }
-  thead th { top: 0; }
-  .daygroup td, .daygroup { position: static; }
+  .table-wrap table { display: none; }
+  .cards { display: block; }
 }

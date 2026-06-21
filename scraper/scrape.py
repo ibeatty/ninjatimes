@@ -447,13 +447,15 @@ def add_results_data(result: dict, settings: dict, fetcher: Fetcher,
 
         pst = prev_state.get(key, {})
         if pst.get("final"):  # latched — freeze the previously recorded placements
-            state[key] = {"final": True, "hash": pst.get("hash", digest),
+            state[key] = {"final": True, "in_progress": False,
+                          "hash": pst.get("hash", digest),
                           "places": pst.get("places", my_places)}
         else:
             empty_runorder = run_remaining.get(key, 0) == 0
             stable = bool(all_places) and digest == pst.get("hash")
             final = bool(all_places) and empty_runorder and stable
-            state[key] = {"final": final, "hash": digest, "places": my_places}
+            state[key] = {"final": final, "in_progress": (not final and bool(all_places)),
+                          "hash": digest, "places": my_places}
         log.info("  results %-34s finishers=%-3d final=%s",
                  key, len(all_places), state[key]["final"])
 
@@ -466,11 +468,11 @@ def assign_places(result: dict) -> None:
     state = result.get("results_state", {})
     for row in result["rows"]:
         key = f"{row.get('tier')}|{P.norm(row['division'])}|{row['event']}"
-        st = state.get(key)
-        if st and st.get("final"):
-            row["place"] = st.get("places", {}).get(row.get("athlete_id") or "", "")
-        else:
-            row["place"] = ""
+        st = state.get(key) or {}
+        row["event_final"] = bool(st.get("final"))
+        row["event_in_progress"] = bool(st.get("in_progress"))
+        row["place"] = (st.get("places", {}).get(row.get("athlete_id") or "", "")
+                        if st.get("final") else "")
 
 
 # --- main -------------------------------------------------------------------

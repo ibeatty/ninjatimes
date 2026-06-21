@@ -38,19 +38,37 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # After the championships end (config event_end_date), scheduled runs no-op
+      # so we stop hitting the WNL/timing site. Manual "Run workflow" always runs.
+      - name: Check event window
+        id: window
+        run: |
+          END=$(python3 -c "import json;print(json.load(open('config/settings.json')).get('event_end_date',''))")
+          TODAY=$(date -u +%F)
+          if [ -n "$END" ] && [[ "$TODAY" > "$END" ]] && [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+            echo "Past event end ($END); skipping scheduled run."
+            echo "active=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "active=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Set up uv
+        if: steps.window.outputs.active == 'true'
         uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
 
       - name: Scrape run orders -> site/data/
+        if: steps.window.outputs.active == 'true'
         run: uv run python scraper/scrape.py -v
 
       - name: Upload Pages artifact
+        if: steps.window.outputs.active == 'true'
         uses: actions/upload-pages-artifact@v3
         with:
           path: site
 
       - name: Deploy to GitHub Pages
         id: deploy
+        if: steps.window.outputs.active == 'true'
         uses: actions/deploy-pages@v4

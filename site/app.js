@@ -6,9 +6,10 @@ const EVENT_ORDER = ['Stage 1', 'Stage 2', 'Stage 3', 'DC'];
 const state = {
   data: null,
   selected: new Set(),     // chip-selected athlete names
-  sort: 'athlete',
-  hideDnq: false,
+  sort: 'wave_start',      // default: chronological, grouped by day
+  hideDnq: true,
   hideTba: false,
+  hidePast: false,
 };
 
 // Primary sort modes; each drives a grouping. Other columns can be clicked to
@@ -39,10 +40,19 @@ async function load() {
     return;
   }
   applyUrlParams();
+  syncControls();
   initChips();
   renderFreshness();
   renderUnmatched();
   render();
+}
+
+// Reflect current state into the controls (so defaults + URL params show correctly).
+function syncControls() {
+  $('#sort').value = state.sort;
+  $('#hide-dnq').checked = state.hideDnq;
+  $('#hide-tba').checked = state.hideTba;
+  $('#hide-past').checked = state.hidePast;
 }
 
 // --- url params -------------------------------------------------------------
@@ -146,6 +156,7 @@ function visibleRows() {
   let rows = state.data.rows.filter((r) => state.selected.has(r.athlete));
   if (state.hideDnq) rows = rows.filter((r) => r.status !== 'did_not_qualify');
   if (state.hideTba) rows = rows.filter((r) => r.status !== 'tba');
+  if (state.hidePast) rows = rows.filter((r) => !r.event_final);
 
   rows.sort(comparator(state.sort));
   return rows;
@@ -212,9 +223,33 @@ const COLUMNS = [
 
 function placeCell(r) {
   const p = r.place;
-  if (!p) return '';                       // blank until the event is final
-  const medal = { '1': '🥇', '2': '🥈', '3': '🥉' }[String(p)] || '';
-  return `<span class="place">${medal ? medal + ' ' : ''}${esc(p)}</span>`;
+  if (p) {                                 // finalized placement
+    const medal = { '1': '🥇', '2': '🥈', '3': '🥉' }[String(p)] || '';
+    return `<span class="place">${medal ? medal + ' ' : ''}${esc(p)}</span>`;
+  }
+  if (r.event_in_progress) {               // underway — standings changing live
+    return '<span class="inprogress" title="In progress — standings changing live" aria-label="in progress"></span>';
+  }
+  return '';                               // not started yet
+}
+
+function runOrderShort(ro) {
+  if (!ro || ro === 'n/a') return '';
+  return ro === 'TBA' ? 'TBA' : '#' + esc(ro);
+}
+
+// Compact mobile card: name + three dense lines (no labels).
+function cardHtml(r) {
+  const l1 = `T${esc(r.tier)} &middot; ${esc(r.division)} &middot; ${esc(r.event)}${statusPill(r)}`;
+  const l2 = [esc(r.rig), r.wave ? `Wave ${esc(r.wave)}` : ''].filter(Boolean).join(' &middot; ');
+  const l3 = [esc(r.wave_start), runOrderShort(r.run_order), placeCell(r)]
+    .filter(Boolean).join(' &middot; ');
+  return `<div class="card ${rowClass(r)}">
+    <div class="card-name">${esc(r.athlete)}</div>
+    <div class="card-line">${l1}</div>
+    ${l2 ? `<div class="card-line dim">${l2}</div>` : ''}
+    ${l3 ? `<div class="card-line">${l3}</div>` : ''}
+  </div>`;
 }
 
 function statusPill(r) {
@@ -237,7 +272,8 @@ function render() {
     return `<th data-key="${c.key}">${esc(c.label)}${arrow}</th>`;
   }).join('') + '</tr></thead>';
 
-  let body = '';
+  let body = '';      // desktop table rows
+  let cards = '';     // mobile cards
   const kind = groupKind();
   let lastGroup = null;
   for (const r of rows) {
@@ -245,6 +281,7 @@ function render() {
       const g = groupLabel(r, kind);
       if (g !== lastGroup) {
         body += `<tr class="daygroup"><td colspan="${COLUMNS.length}">${esc(g)}</td></tr>`;
+        cards += `<div class="group-head">${esc(g)}</div>`;
         lastGroup = g;
       }
     }
@@ -252,10 +289,11 @@ function render() {
       const content = c.html ? c.html(r) : esc(r[c.key]);
       return `<td class="${c.cls || ''}" data-label="${esc(c.label)}">${content}</td>`;
     }).join('') + '</tr>';
+    cards += cardHtml(r);
   }
 
   $('#table-wrap').innerHTML = rows.length
-    ? `<table>${head}<tbody>${body}</tbody></table>` : '';
+    ? `<table>${head}<tbody>${body}</tbody></table><div class="cards">${cards}</div>` : '';
 
   // summary
   const athletes = new Set(rows.map((r) => r.athlete));
@@ -289,6 +327,9 @@ function init() {
   $('#sort').addEventListener('change', (e) => { state.sort = e.target.value; render(); });
   $('#hide-dnq').addEventListener('change', (e) => { state.hideDnq = e.target.checked; render(); });
   $('#hide-tba').addEventListener('change', (e) => { state.hideTba = e.target.checked; render(); });
+  $('#hide-past').addEventListener('change', (e) => { state.hidePast = e.target.checked; render(); });
+  // Keep the "updated … ago" label ticking without a reload.
+  setInterval(() => { if (state.data) renderFreshness(); }, 60000);
   load();
 }
 
