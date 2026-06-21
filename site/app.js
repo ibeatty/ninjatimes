@@ -272,7 +272,7 @@ function cardHtml(r) {
 }
 
 function statusPill(r) {
-  if (r.status === 'did_not_qualify') return ' <span class="pill pill-dnq keep">did not qualify</span>';
+  if (r.status === 'did_not_qualify') return ' <span class="pill pill-dnq keep">DNQ</span>';
   if (r.status === 'completed') return ' <span class="pill pill-done keep">ran</span>';
   return '';
 }
