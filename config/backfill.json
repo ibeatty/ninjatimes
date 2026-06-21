@@ -11,6 +11,17 @@
       "wave": "8",
       "wave_start": "Sat 3:53 PM",
       "run_order": "19"
+    },
+    {
+      "athlete": "Eleanor Beatty",
+      "athlete_id": "234946",
+      "tier": 2,
+      "division": "Preteen Female",
+      "event": "Stage 1",
+      "rig": "Stage 1 Tall B",
+      "wave": "2",
+      "wave_start": "Thu 2:00 PM",
+      "run_order": "14"
     }
   ]
 }
