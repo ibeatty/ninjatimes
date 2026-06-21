@@ -45,6 +45,12 @@ h1 { font-size: 19px; margin: 0; letter-spacing: .2px; }
 .freshness { display: flex; align-items: center; gap: 10px; }
 .updated { color: var(--muted); font-size: 12.5px; }
 .updated.stale { color: var(--tba); }
+/* Brief highlight confirming a refresh completed, even if the data is unchanged. */
+.updated.flash { animation: updated-flash 1s ease; }
+@keyframes updated-flash {
+  0%   { color: var(--accent); text-shadow: 0 0 8px var(--accent); }
+  100% { /* settle back to the resolved color (muted, or stale) */ }
+}
 
 /* --- buttons / inputs --- */
 .btn {
@@ -55,6 +61,8 @@ h1 { font-size: 19px; margin: 0; letter-spacing: .2px; }
 }
 .btn:hover { border-color: var(--accent); }
 .btn:active { transform: translateY(1px); }
+.btn:disabled { cursor: default; opacity: .6; }
+.btn.loading { opacity: .7; }
 .btn-mini { padding: 4px 9px; font-size: 12px; font-weight: 600; }
 
 main { max-width: 1100px; margin: 0 auto; padding: 16px; }
