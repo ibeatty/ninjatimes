@@ -355,3 +355,73 @@ def parse_embed(html: str, count_tester_in_position: bool = False) -> EmbedPage:
             ))
         page.wave_count += 1
     return page
+
+
+# --- results embed ----------------------------------------------------------
+
+_LBGM_RE = re.compile(r"lb_gm_id=(\d+)")
+_CAT_RE = re.compile(r"category=(\d+)")
+
+
+def parse_results_nav(html: str) -> dict:
+    """Parse a ninjaworks results embed's nav into id maps.
+
+    The results widget is one embed per tier whose internal tabs select a
+    division (``lb_gm_id`` in the nav-pills) and an event (``category`` in the
+    nav-tabs). The nav lists every division and event regardless of current
+    selection, so one fetch yields the whole mapping.
+    """
+    soup = BeautifulSoup(html, "lxml")
+    divisions: dict[str, str] = {}          # division_key -> lb_gm_id
+    events: dict[str, str] = {}             # event_label_key -> category
+
+    pills = soup.select_one("ul.nav-pills")
+    if pills:
+        for a in pills.find_all("a", href=True):
+            name = clean(a.get_text())
+            m = _LBGM_RE.search(a["href"])
+            if name and m:
+                divisions[norm(name)] = m.group(1)
+
+    tabs = soup.select_one("ul.nav-tabs")
+    if tabs:
+        for a in tabs.find_all("a", href=True):
+            label = clean(a.get_text())
+            m = _CAT_RE.search(a["href"])
+            if label and m:
+                events[norm(label)] = m.group(1)
+
+    return {"divisions": divisions, "events": events}
+
+
+@dataclass
+class ResultRow:
+    place: str
+    name: str
+    name_key: str
+    athlete_id: str | None
+    result: str
+
+
+def parse_results_table(html: str) -> list[ResultRow]:
+    """Parse a results table: rows are ``# | Name | Result | …`` each followed by
+    a collapsed row reading ``Name is NinjaWorks Athlete ID NNNNN``."""
+    soup = BeautifulSoup(html, "lxml")
+    table = soup.find("table")
+    out: list[ResultRow] = []
+    if not table:
+        return out
+    cur: ResultRow | None = None
+    for tr in table.find_all("tr"):
+        tds = [c.get_text(" ", strip=True) for c in tr.find_all("td")]
+        full = " ".join(c.get_text(" ", strip=True) for c in tr.find_all(["td", "th"]))
+        m = re.search(r"is NinjaWorks Athlete ID\s*(\d+)", full)
+        if m and cur is not None:
+            cur.athlete_id = m.group(1)
+            out.append(cur)
+            cur = None
+        elif tds and re.fullmatch(r"\d+", tds[0].strip()):
+            name = clean(tds[1]) if len(tds) > 1 else ""
+            cur = ResultRow(place=tds[0].strip(), name=name, name_key=norm(name),
+                            athlete_id=None, result=clean(tds[2]) if len(tds) > 2 else "")
+    return out

@@ -163,6 +163,7 @@ function comparator(mode) {
       case 'rig': return [r.rig.toLowerCase(), r.sort_key];
       case 'wave': return [num(r.wave), r.sort_key];
       case 'run_order': return [num(r.run_order), r.sort_key];
+      case 'place': return [num(r.place), r.sort_key];
       case 'athlete':
       default: return [r.athlete.toLowerCase(), r.sort_key];
     }
@@ -206,7 +207,15 @@ const COLUMNS = [
   { key: 'wave', label: 'Wave', cls: 'num' },
   { key: 'wave_start', label: 'Wave start' },
   { key: 'run_order', label: 'Run order', cls: 'num' },
+  { key: 'place', label: 'Place', cls: 'num', html: (r) => placeCell(r) },
 ];
+
+function placeCell(r) {
+  const p = r.place;
+  if (!p) return '';                       // blank until the event is final
+  const medal = { '1': '🥇', '2': '🥈', '3': '🥉' }[String(p)] || '';
+  return `<span class="place">${medal ? medal + ' ' : ''}${esc(p)}</span>`;
+}
 
 function statusPill(r) {
   if (r.status === 'did_not_qualify') return ' <span class="pill pill-dnq keep">did not qualify</span>';

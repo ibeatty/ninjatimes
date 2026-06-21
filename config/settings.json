@@ -9,6 +9,16 @@
   "events": ["Stage 1", "Stage 2", "Stage 3", "DC"],
   "qualifying_events": ["Stage 2", "Stage 3"],
   "include_h2h": false,
+  "results_pages": {
+    "1": "/t1-championships-results/",
+    "2": "/t2-championships-results/"
+  },
+  "results_event_labels": {
+    "Stage 1": "Stage 1",
+    "Stage 2": "Stage 2",
+    "Stage 3": "Stage 3",
+    "DC": "Discipline Circuit Overall"
+  },
   "event_day_order": [
     "Thursday",
     "Friday",

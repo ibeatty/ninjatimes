@@ -1,9 +1,14 @@
 # 🥷 Ninja Times
 
 An athlete-centric view of **World Ninja League (WNL) Championship** run orders. Pick the
-athletes you care about and see their wave, wave start time, and run-order position across
-Stage 1, Stage 2, Stage 3, and the Discipline Circuit — in one mobile-friendly table you can
-sort, filter, and group by day.
+athletes you care about and see their wave, wave start time, run-order position, and final
+placement across Stage 1, Stage 2, Stage 3, and the Discipline Circuit — in one mobile-friendly
+table you can sort, filter, and group by day.
+
+Placements are scraped from the WNL results pages and shown **only once an event is final** —
+a (division, event) is finalized when its results are non-empty, its run order is empty, and
+the results are unchanged since the previous refresh, then latched so transient mid-event
+standings never show and a reappearing run order can't un-finalize it.
 
 The official [WNL run-order pages](https://worldninjaleague.org/run-orders/) only let you
 browse one rig at a time, with no search by athlete. Ninja Times scrapes them and flips the

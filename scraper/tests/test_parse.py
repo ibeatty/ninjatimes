@@ -122,3 +122,48 @@ def test_embed_division_from_row():
     page = P.parse_embed(EMBED)
     assert "preteen male" in page.divisions_present
     assert "mature kids male" in page.divisions_present
+
+
+# --- results embed ----------------------------------------------------------
+
+RESULTS_NAV = """
+<html><body>
+<ul class="nav nav-pills">
+  <li><a href="/embed/101/24075/1455/?lb_gm_id=5201&category=1#g">Mature Kids Male</a></li>
+  <li><a href="/embed/101/24075/1455/?lb_gm_id=5209&category=1#g">Adult Male</a></li>
+</ul>
+<ul class="nav nav-tabs">
+  <li><a href="/embed/101/24075/1455/?lb_gm_id=5199&category=1#g">Stage 1</a></li>
+  <li><a href="/embed/101/24075/1455/?lb_gm_id=5199&category=2#g">Stage 2</a></li>
+  <li><a href="/embed/101/24075/1455/?lb_gm_id=5199&category=8#g">Discipline Circuit Overall</a></li>
+</ul>
+</body></html>
+"""
+
+
+def test_parse_results_nav():
+    nav = P.parse_results_nav(RESULTS_NAV)
+    assert nav["divisions"]["mature kids male"] == "5201"
+    assert nav["divisions"]["adult male"] == "5209"
+    assert nav["events"]["stage 1"] == "1"
+    assert nav["events"]["discipline circuit overall"] == "8"
+
+
+RESULTS_TABLE = """
+<html><body><table>
+  <tr><th>#</th><th>Name</th><th>Result</th><th>Obstacles</th><th>Time</th></tr>
+  <tr><td>1</td><td>Nolan Augustyn</td><td>Finished</td><td>8</td><td>00:29.95</td></tr>
+  <tr class="collapse"><td></td><td>Nolan Augustyn is NinjaWorks Athlete ID 999001</td></tr>
+  <tr><td>2</td><td>Easton Fletcher</td><td>Finished</td><td>8</td><td>00:30.70</td></tr>
+  <tr class="collapse"><td></td><td>Easton Fletcher is NinjaWorks Athlete ID 176499</td></tr>
+</table></body></html>
+"""
+
+
+def test_parse_results_table():
+    rows = P.parse_results_table(RESULTS_TABLE)
+    assert len(rows) == 2
+    by_id = {r.athlete_id: r for r in rows}
+    assert by_id["176499"].place == "2"
+    assert by_id["176499"].name == "Easton Fletcher"
+    assert by_id["999001"].place == "1"

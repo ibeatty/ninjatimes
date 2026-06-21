@@ -133,6 +133,8 @@ tr.row-dnq td { color: var(--faint); text-decoration: line-through; text-decorat
 tr.row-dnq td.keep, tr.row-done td.keep { text-decoration: none; }
 tr.row-done td { color: var(--done); }
 .tier-badge { display:inline-block; min-width: 18px; text-align:center; padding:1px 6px; border-radius:6px; background: var(--panel-2); border:1px solid var(--line); font-size:12px; }
+.place { font-weight: 700; }
+tr.row-dnq td.num .place, tr.row-tba td .place { font-weight: 600; }
 
 /* --- footer --- */
 .site-footer { max-width: 1100px; margin: 22px auto 0; padding: 0 16px; color: var(--muted); }

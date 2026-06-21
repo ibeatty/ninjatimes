@@ -12,6 +12,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import subprocess
@@ -298,6 +299,10 @@ def build(settings: dict, athletes: list[dict], fetcher: Fetcher,
             "matched_athletes": len({r["athlete"] for r in rows}),
         },
     }
+    # How many competitors remain in each (tier, division, event) run order — 0
+    # means everyone has run (a precondition for finalizing that event's results).
+    run_remaining = Counter((a["tier"], a["division_key"], a["event"]) for a in appearances)
+    result["_run_remaining"] = {f"{t}|{d}|{e}": n for (t, d, e), n in run_remaining.items()}
     return result
 
 
@@ -381,12 +386,101 @@ def fetch_previous(settings: dict, fetcher: Fetcher) -> dict | None:
         return None
 
 
+# --- results / placement ----------------------------------------------------
+
+def add_results_data(result: dict, settings: dict, fetcher: Fetcher,
+                     prev: dict | None, tracked_ids: set[str]) -> dict:
+    """Fetch results per (division, event), decide which are final, and record
+    the tracked athletes' placements.
+
+    A (tier, division, event) is finalized only when its results table is
+    non-empty, its run order is empty, and the full results are unchanged since
+    the previous scrape. Once final it is latched (frozen) via results_state, so
+    transient mid-event placements never surface and a reappearing run order
+    cannot un-finalize it.
+    """
+    base_url = settings["base_url"]
+    results_pages = settings.get("results_pages", {})
+    event_labels = settings.get("results_event_labels", {})
+    prev_state = (prev or {}).get("results_state", {})
+    run_remaining = result.get("_run_remaining", {})
+
+    # Discover the results embed + nav (division/event id maps) per tier in use.
+    bases: dict[int, str] = {}
+    navs: dict[int, dict] = {}
+    for tier in sorted({r["tier"] for r in result["rows"] if r.get("tier")}):
+        path = results_pages.get(str(tier))
+        if not path:
+            continue
+        try:
+            src = P.extract_embed_src(fetcher.get(urljoin(base_url, path)))
+            if not src:
+                continue
+            bases[tier] = src
+            navs[tier] = P.parse_results_nav(fetcher.get(src, referer=True))
+            log.info("results tier %s: %s (%d divisions, %d events)", tier, src,
+                     len(navs[tier]["divisions"]), len(navs[tier]["events"]))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("results discovery failed for tier %s: %s", tier, exc)
+
+    combos = {(r["tier"], P.norm(r["division"]), r["event"]) for r in result["rows"]}
+    state: dict[str, dict] = {}
+    for tier, div_key, event in sorted(combos, key=lambda c: (c[0] or 0, c[1], c[2])):
+        nav, base = navs.get(tier), bases.get(tier)
+        if not nav or not base:
+            continue
+        lb = nav["divisions"].get(div_key)
+        cat = nav["events"].get(P.norm(event_labels.get(event, "")))
+        if not lb or not cat:
+            continue
+        key = f"{tier}|{div_key}|{event}"
+        try:
+            table = P.parse_results_table(
+                fetcher.get(f"{base}?lb_gm_id={lb}&category={cat}", referer=True))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("results fetch failed %s: %s", key, exc)
+            continue
+        all_places = {r.athlete_id: r.place for r in table if r.athlete_id}
+        my_places = {i: p for i, p in all_places.items() if i in tracked_ids}
+        digest = hashlib.md5(
+            json.dumps(sorted(all_places.items())).encode()).hexdigest()[:12] if all_places else ""
+
+        pst = prev_state.get(key, {})
+        if pst.get("final"):  # latched — freeze the previously recorded placements
+            state[key] = {"final": True, "hash": pst.get("hash", digest),
+                          "places": pst.get("places", my_places)}
+        else:
+            empty_runorder = run_remaining.get(key, 0) == 0
+            stable = bool(all_places) and digest == pst.get("hash")
+            final = bool(all_places) and empty_runorder and stable
+            state[key] = {"final": final, "hash": digest, "places": my_places}
+        log.info("  results %-34s finishers=%-3d final=%s",
+                 key, len(all_places), state[key]["final"])
+
+    result["results_state"] = state
+    return result
+
+
+def assign_places(result: dict) -> None:
+    """Set each row's ``place`` from its event's finalized results (else blank)."""
+    state = result.get("results_state", {})
+    for row in result["rows"]:
+        key = f"{row.get('tier')}|{P.norm(row['division'])}|{row['event']}"
+        st = state.get(key)
+        if st and st.get("final"):
+            row["place"] = st.get("places", {}).get(row.get("athlete_id") or "", "")
+        else:
+            row["place"] = ""
+
+
 # --- main -------------------------------------------------------------------
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Scrape WNL run orders into site/data/.")
     ap.add_argument("--max-pages", type=int, default=None, help="limit rig pages (dev)")
     ap.add_argument("--no-persist", action="store_true", help="ignore previous snapshot")
+    ap.add_argument("--prev-file", type=Path, default=None,
+                    help="load the previous snapshot from a local file (dev/testing)")
     ap.add_argument("--out", type=Path, default=OUT_DIR, help="output directory")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args(argv)
@@ -404,16 +498,30 @@ def main(argv=None) -> int:
     fetcher = Fetcher(settings)
     try:
         result = build(settings, athletes, fetcher, max_pages=args.max_pages)
-        if not args.no_persist:
+        tracked_ids = ({a["id"] for a in athletes if a.get("id")}
+                       | {r["athlete_id"] for r in result["rows"] if r.get("athlete_id")})
+        if args.prev_file and args.prev_file.exists():
+            prev = load_json(args.prev_file)
+        elif not args.no_persist:
             prev = fetch_previous(settings, fetcher)
-            result = merge_previous(result, prev)
+        else:
+            prev = None
+        try:
+            result = add_results_data(result, settings, fetcher, prev, tracked_ids)
+        except Exception as exc:  # noqa: BLE001 — results are a bonus; never sink the run
+            log.warning("results stage failed (continuing without placements): %s", exc)
+            result.setdefault("results_state", {})
     finally:
         fetcher.close()
+
+    result = merge_previous(result, prev)
 
     bf_path = CONFIG_DIR / "backfill.json"
     backfill = load_json(bf_path) if bf_path.exists() else None
     result = apply_backfill(result, backfill, settings.get("event_day_order", []))
 
+    assign_places(result)
+    result.pop("_run_remaining", None)
     result["rows"].sort(key=lambda r: (P.norm(r["athlete"]), r["sort_key"]))
 
     args.out.mkdir(parents=True, exist_ok=True)
