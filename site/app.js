@@ -9,7 +9,7 @@ const state = {
   sort: 'wave_start',      // default: chronological, grouped by day
   hideDnq: true,
   hideTba: false,
-  hideCompleted: true,     // hide events whose results are final
+  hideCompleted: true,     // hide rows whose wave is done (every athlete in it has run)
 };
 
 // Primary sort modes; each drives a grouping. Other columns can be clicked to
@@ -156,7 +156,7 @@ function visibleRows() {
   let rows = state.data.rows.filter((r) => state.selected.has(r.athlete));
   if (state.hideDnq) rows = rows.filter((r) => r.status !== 'did_not_qualify');
   if (state.hideTba) rows = rows.filter((r) => r.status !== 'tba');
-  if (state.hideCompleted) rows = rows.filter((r) => !r.event_final);
+  if (state.hideCompleted) rows = rows.filter((r) => r.wave_state !== 'over');
 
   rows.sort(comparator(state.sort));
   return rows;

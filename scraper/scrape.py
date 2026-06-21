@@ -496,16 +496,26 @@ def assign_places(result: dict, qualifying: set[str]) -> None:
         row["has_run"] = has_run
         row["place"] = places.get(aid, "") if final else ""
 
+        # Wave status is collective: the lowest wave still in the run order is the
+        # one running; anything below it is done (every athlete in it has run);
+        # anything above is upcoming. Independent of whether *our* athlete has run.
         try:
             wn = int(row.get("wave"))
         except (TypeError, ValueError):
             wn = None
-        if has_run:
-            row["wave_state"] = "over"            # their wave is done
-        elif wn is not None and st.get("started") and current_wave.get(key) == wn:
-            row["wave_state"] = "in_progress"     # their wave is the one running now
-        elif wn is not None:
-            row["wave_state"] = "upcoming"
+        started = bool(st.get("started"))
+        current = current_wave.get(key)           # lowest wave still queued, or None
+        if final:
+            row["wave_state"] = "over"            # whole event done -> wave done too
+        elif wn is not None and current is not None:
+            if wn < current:
+                row["wave_state"] = "over"        # every athlete in this wave has run
+            elif wn == current:
+                row["wave_state"] = "in_progress" if started else "upcoming"
+            else:
+                row["wave_state"] = "upcoming"
+        elif wn is not None:                       # run order empty for this event
+            row["wave_state"] = "over" if started else "upcoming"
         else:
             row["wave_state"] = ""
 
