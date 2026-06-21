@@ -457,16 +457,22 @@ def add_results_data(result: dict, settings: dict, fetcher: Fetcher,
             json.dumps(sorted(all_places.items())).encode()).hexdigest()[:12] if all_places else ""
 
         pst = prev_state.get(key, {})
-        if pst.get("final"):  # latched — keep frozen placements, add any new athletes
-            state[key] = {"final": True, "in_progress": False, "started": True,
-                          "hash": pst.get("hash", digest),
-                          "places": {**pst.get("places", {}), **my_places}}
-        else:
-            empty_runorder = run_remaining.get(key, 0) == 0
-            stable = bool(all_places) and digest == pst.get("hash")
-            final = bool(all_places) and empty_runorder and stable
-            state[key] = {"final": final, "in_progress": (not final and bool(all_places)),
-                          "started": bool(all_places), "hash": digest, "places": my_places}
+        stable = bool(all_places) and digest == pst.get("hash")
+        stable_count = (pst.get("stable_count", 0) + 1) if stable else 0
+        empty_runorder = run_remaining.get(key, 0) == 0
+        # Final when the standings settle: an empty run order + one stable scrape
+        # (fast), OR results unchanged across a few scrapes (slow). The slow path
+        # survives a run order that repopulates after the event ("restored" waves).
+        # Soft-latched: stays final while the standings don't change, but drops if
+        # they do — e.g. a multi-day event resuming the next day.
+        final = (bool(all_places)
+                 and ((empty_runorder and stable_count >= 1) or stable_count >= 2)
+                 ) or (bool(pst.get("final")) and stable)
+        state[key] = {
+            "final": final, "in_progress": (not final and bool(all_places)),
+            "started": bool(all_places), "hash": digest,
+            "stable_count": stable_count, "places": my_places,
+        }
         log.info("  results %-34s finishers=%-3d final=%s",
                  key, len(all_places), state[key]["final"])
 
@@ -519,9 +525,12 @@ def assign_places(result: dict, qualifying: set[str]) -> None:
         else:
             row["wave_state"] = ""
 
-        # A row still marked TBA only because the athlete was added after their
-        # event ran: reclassify from the finalized results.
-        if final and row["status"] == "tba":
+        # Reclassify from the finalized results: a "posted" row whose run order has
+        # repopulated post-event, or a "tba" row for an athlete added after their
+        # event ran.
+        if final and has_run and row["status"] == "posted":
+            row["status"] = "completed"
+        elif final and row["status"] == "tba":
             if row["place"]:
                 row["status"] = "completed"
             elif row["event"] in qualifying:
