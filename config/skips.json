@@ -1,0 +1,5 @@
+{
+  "_comment": "Athletes registered in a run order but not competing. Match is by athlete_id + event. For DC, list the specific 'sub_events' (any of Endurance/Speed/Tech) being skipped; omit 'sub_events' to mark a whole-event skip (e.g. a stage). Sub-events the athlete actually completes are never overridden. Leave 'skips' empty when there are none.",
+  "_example": { "athlete_id": "000000", "athlete": "Example Athlete", "event": "DC", "sub_events": ["Speed"] },
+  "skips": []
+}

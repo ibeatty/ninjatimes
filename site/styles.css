@@ -145,6 +145,10 @@ tr.row-done td { color: var(--done); }
 tr.row-dnq td.num .place, tr.row-tba td .place { font-weight: 600; }
 .wave-done { color: var(--accent-2) !important; font-weight: 700; }  /* wave complete (matches the spinner) */
 .ran-check { color: var(--posted) !important; font-weight: 700; }    /* green: athlete has run */
+.skip-mark { font-size: 12px; }                                      /* 🚫 registered, not competing */
+.ran-check + .skip-mark, .skip-mark + .ran-check, .ran-check + .ran-check { margin-left: 3px; }
+tr.row-skip td { color: var(--muted); }
+.card.row-skip .card-name, .card.row-skip .card-line { color: var(--muted); }
 .pending { white-space: nowrap; }                                    /* hourglass */
 
 /* --- footer --- */

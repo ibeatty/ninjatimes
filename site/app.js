@@ -269,18 +269,34 @@ function waveIcon(r) {
   return '';
 }
 
-// DC has no single run order; show one green check per completed sub-event (0–3).
+const SKIP_ICON = '<span class="skip-mark" title="Registered, not competing">🚫</span>';
+
+// DC has no single run order; show a mark per sub-event in order: a green check
+// for each completed, a 'not competing' icon for each skipped, nothing for those
+// not yet run. So 0–3 marks convey how far through the three sub-events they are.
 function dcChecks(r) {
-  const done = r.dc_done || [];
-  if (!done.length) return '';
-  const title = `${done.join(', ')} done (${done.length} of 3)`;
-  return `<span class="ran-check" title="${esc(title)}">${'✓'.repeat(done.length)}</span>`;
+  const order = (state.data && state.data.dc_subevents) || ['Endurance', 'Speed', 'Tech'];
+  const done = new Set(r.dc_done || []);
+  const skipped = new Set(r.dc_skipped || []);
+  let html = '';
+  const doneList = [], skipList = [];
+  for (const se of order) {
+    if (done.has(se)) { html += '<span class="ran-check">✓</span>'; doneList.push(se); }
+    else if (skipped.has(se)) { html += SKIP_ICON; skipList.push(se); }
+  }
+  if (!html) return '';
+  const t = [];
+  if (doneList.length) t.push(`${doneList.join(', ')} done`);
+  if (skipList.length) t.push(`${skipList.join(', ')} not competing`);
+  return `<span title="${esc(t.join('; '))}">${html}</span>`;
 }
 
-// Run order: once the athlete is in the results they've run, and the captured
-// position is stale/obsolete — show a green check instead. Only an athlete who
-// hasn't run yet shows their upcoming queue position. (table cell)
+// Run order: a skip icon if registered-but-not-competing; otherwise once the
+// athlete is in the results they've run and the captured position is stale, so
+// show a green check. Only an athlete who hasn't run yet shows their queue
+// position. (table cell)
 function runOrderCell(r) {
+  if (r.skipped) return SKIP_ICON;
   if (r.event === 'DC') return dcChecks(r);
   if (r.has_run) return '<span class="ran-check" title="Has run">✓</span>';
   return esc(String(r.run_order ?? ''));
@@ -288,6 +304,7 @@ function runOrderCell(r) {
 
 // Same, for the compact card (#N for upcoming).
 function runOrderShort(r) {
+  if (r.skipped) return SKIP_ICON;
   if (r.event === 'DC') return dcChecks(r);
   if (r.has_run) return '<span class="ran-check" title="Has run">✓</span>';
   const ro = String(r.run_order ?? '');
@@ -316,7 +333,8 @@ function statusPill(r) {
 }
 
 function rowClass(r) {
-  return { posted: '', tba: 'row-tba', did_not_qualify: 'row-dnq', completed: 'row-done' }[r.status] || '';
+  const base = { posted: '', tba: 'row-tba', did_not_qualify: 'row-dnq', completed: 'row-done' }[r.status] || '';
+  return r.skipped ? `${base} row-skip`.trim() : base;
 }
 
 function render() {

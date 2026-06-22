@@ -340,6 +340,7 @@ def build(settings: dict, athletes: list[dict], fetcher: Fetcher,
     result = {
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "event_day_order": day_order,
+        "dc_subevents": settings.get("dc_subevents", ["Endurance", "Speed", "Tech"]),
         "presets": [a["name"] for a in athletes],
         "rows": rows,
         "unmatched": unmatched,
@@ -420,6 +421,33 @@ def merge_previous(result: dict, prev: dict | None) -> dict:
                 "sort_key": prow.get("sort_key", crow["sort_key"]),
             })
     result["counts"]["rows"] = len(cur)
+    return result
+
+
+def apply_skips(result: dict, skips: list[dict]) -> dict:
+    """Mark rows for athletes registered in a run order but not competing.
+
+    Each skip names ``athlete_id`` + ``event``; for DC it may list specific
+    ``sub_events`` to mark, otherwise the whole event is skipped. Matched by
+    athlete_id + event. Sub-events the athlete actually completed are never
+    overridden — the live result always wins (see dcChecks on the front end).
+    """
+    if not skips:
+        return result
+    by_key = {}
+    for s in skips:
+        aid, ev = str(s.get("athlete_id") or ""), s.get("event")
+        if aid and ev:
+            by_key[(aid, ev)] = s
+    for row in result["rows"]:
+        s = by_key.get((str(row.get("athlete_id") or ""), row.get("event")))
+        if not s:
+            continue
+        subs = s.get("sub_events")
+        if subs:
+            row["dc_skipped"] = list(subs)   # per-sub-event (DC)
+        else:
+            row["skipped"] = True            # whole event (e.g. a stage)
     return result
 
 
@@ -604,15 +632,18 @@ def assign_places(result: dict, qualifying: set[str]) -> None:
         started = bool(st.get("started"))
         current = current_wave.get(key)           # lowest wave still queued, or None
         dc_total = st.get("dc_total", 0)
-        if row["event"] == "DC" and dc_total:
+        if row.get("skipped"):
+            row["wave_state"] = "over"            # registered but not competing -> resolved
+        elif row["event"] == "DC" and dc_total:
             # DC runs as 3 sub-events across multiple days, so its run-order wave
             # frontier is unreliable (wave numbers aren't time-ordered, and finished
-            # orders linger). Read completion from the sub-events instead: all done
-            # -> this athlete's DC is over (hide it); some done -> still in progress.
-            n_done = len(row["dc_done"])
-            if final or n_done >= dc_total:
+            # orders linger). Read completion from the sub-events instead. A sub-event
+            # is "resolved" if the athlete completed it or is skipping it; once nothing
+            # is left to run their DC is over (hide it), part-resolved is in progress.
+            resolved = len(set(row["dc_done"]) | set(row.get("dc_skipped", [])))
+            if final or resolved >= dc_total:
                 row["wave_state"] = "over"
-            elif n_done > 0:
+            elif resolved > 0:
                 row["wave_state"] = "in_progress"
             else:
                 row["wave_state"] = "upcoming"
@@ -739,6 +770,10 @@ def main(argv=None) -> int:
     bf_path = CONFIG_DIR / "backfill.json"
     backfill = load_json(bf_path) if bf_path.exists() else None
     result = apply_backfill(result, backfill, settings.get("event_day_order", []))
+
+    skips_path = CONFIG_DIR / "skips.json"
+    skips_cfg = load_json(skips_path) if skips_path.exists() else {}
+    result = apply_skips(result, skips_cfg.get("skips", []))
 
     assign_places(result, set(settings.get("qualifying_events", ["Stage 2", "Stage 3"])))
     result.pop("_run_remaining", None)
