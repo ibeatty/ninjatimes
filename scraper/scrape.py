@@ -351,15 +351,29 @@ def build(settings: dict, athletes: list[dict], fetcher: Fetcher,
         if k not in current_wave or a["wave"] < current_wave[k]:
             current_wave[k] = a["wave"]
     result["_current_wave"] = current_wave
-    # Athlete ids still in each run order — used to tell a genuinely-upcoming event
-    # (someone queued who hasn't run) from a "restored" run order (everyone still
-    # listed has already finished).
-    run_order_ids: dict[str, set] = {}
-    for a in appearances:
-        if a["athlete_id"]:
-            k = f'{a["tier"]}|{a["division_key"]}|{a["event"]}'
-            run_order_ids.setdefault(k, set()).add(a["athlete_id"])
-    result["_run_order_ids"] = {k: sorted(v) for k, v in run_order_ids.items()}
+    # When is each (tier, division, event) scheduled to FINISH? Use the latest end
+    # across its schedule rows — DC spans multiple days, so a combo has several.
+    # Past that end, the event is over regardless of run-order/results state: the
+    # robust "done" signal that a partial DC Overall or a restored run order can't.
+    event_dates = settings.get("event_dates", {})
+    offset = settings.get("event_utc_offset", "-04:00")
+    now = datetime.now(timezone.utc)
+    combo_end: dict[str, datetime] = {}
+    for e in entries:
+        if not (e.tier and e.division_key and e.event and e.weekday and e.end_min is not None):
+            continue
+        date = event_dates.get(e.weekday)
+        if not date:
+            continue
+        try:
+            end_dt = datetime.fromisoformat(
+                f"{date}T{e.end_min // 60:02d}:{e.end_min % 60:02d}:00{offset}")
+        except ValueError:
+            continue
+        k = f"{e.tier}|{e.division_key}|{e.event}"
+        if k not in combo_end or end_dt > combo_end[k]:
+            combo_end[k] = end_dt
+    result["_past_end"] = {k: now >= dt for k, dt in combo_end.items()}
     return result
 
 
@@ -460,7 +474,8 @@ def add_results_data(result: dict, settings: dict, fetcher: Fetcher,
     results_pages = settings.get("results_pages", {})
     event_labels = settings.get("results_event_labels", {})
     prev_state = (prev or {}).get("results_state", {})
-    run_order_ids = result.get("_run_order_ids", {})
+    run_remaining = result.get("_run_remaining", {})
+    past_end = result.get("_past_end", {})
 
     # Discover the results embed + nav (division/event id maps) per tier in use.
     bases: dict[int, str] = {}
@@ -511,16 +526,14 @@ def add_results_data(result: dict, settings: dict, fetcher: Fetcher,
         # is still upcoming/running — don't finalize, even if the results table
         # happens to be unchanged (e.g. a partial Discipline Circuit Overall that
         # isn't moving). Re-evaluated each scrape, so it self-corrects.
-        run_ids = set(run_order_ids.get(key, []))
-        results_ids = set(all_places)
-        ran_frac = (sum(1 for i in run_ids if i in results_ids) / len(run_ids)
-                    if run_ids else 1.0)
-        # Settled = nobody genuinely still queued: run order empty, or most of those
-        # still listed have already finished (a "restored" run order — ~99% overlap).
-        # A genuinely-upcoming event has almost none of its run-order athletes in the
-        # results yet (~2%), so a simple majority cleanly separates the two.
-        settled = ran_frac >= 0.5
-        final = bool(all_places) and settled and stable_count >= 1
+        # Final once results are present AND the event is over: the run order is
+        # empty (normal completion), or we're past its scheduled end time. The
+        # scheduled-end path keeps multi-day DC and "restored" run orders correct —
+        # a partial Discipline Circuit Overall stays in-progress until its last day's
+        # runs are done, no matter how stable the standings look meanwhile.
+        run_empty = run_remaining.get(key, 0) == 0
+        final = (bool(all_places) and stable_count >= 1
+                 and (run_empty or past_end.get(key, False)))
         state[key] = {
             "final": final, "in_progress": (not final and bool(all_places)),
             "started": bool(all_places), "hash": digest,
@@ -691,7 +704,7 @@ def main(argv=None) -> int:
     assign_places(result, set(settings.get("qualifying_events", ["Stage 2", "Stage 3"])))
     result.pop("_run_remaining", None)
     result.pop("_current_wave", None)
-    result.pop("_run_order_ids", None)
+    result.pop("_past_end", None)
     result["rows"].sort(key=lambda r: (P.norm(r["athlete"]), r["sort_key"]))
 
     args.out.mkdir(parents=True, exist_ok=True)

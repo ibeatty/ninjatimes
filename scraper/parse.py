@@ -210,6 +210,7 @@ class ScheduleEntry:
     weekday: str | None
     start_disp: str | None
     start_min: int | None
+    end_min: int | None
     rig: str
     slug: str | None
     url: str | None
@@ -254,8 +255,16 @@ def parse_schedule_table(html: str, base_url: str = "") -> list[ScheduleEntry]:
         event = normalize_event(cell(cells, "event").get_text() if cell(cells, "event") else "")
         weekday = parse_weekday(cell(cells, "day").get_text() if cell(cells, "day") else "")
         time_cell = cell(cells, "time")
-        clk = parse_clock(time_cell.get_text() if time_cell else "")
+        time_txt = time_cell.get_text() if time_cell else ""
+        clk = parse_clock(time_txt)
         start_disp, start_min = (clk if clk else (None, None))
+        # End of the range (last clock), e.g. "3:00 PM–7:30 PM" -> 7:30 PM.
+        ms = list(_TIME_RE.finditer(time_txt))
+        end_min = None
+        if ms:
+            m = ms[-1]
+            h, mm, ap = int(m.group(1)), int(m.group(2)), m.group(3).upper()
+            end_min = ((h % 12) + (12 if ap == "PM" else 0)) * 60 + mm
         rig_cell = cell(cells, "rig assignment")
         rig = clean(rig_cell.get_text()) if rig_cell else ""
         # run-order link (last cell usually holds the <a>)
@@ -266,7 +275,7 @@ def parse_schedule_table(html: str, base_url: str = "") -> list[ScheduleEntry]:
             slug = url.strip("/").rsplit("/", 1)[-1].lower()
         entries.append(ScheduleEntry(
             tier=tier, division=div_txt, division_key=norm(div_txt), event=event,
-            weekday=weekday, start_disp=start_disp, start_min=start_min,
+            weekday=weekday, start_disp=start_disp, start_min=start_min, end_min=end_min,
             rig=rig, slug=slug, url=url,
         ))
     return entries

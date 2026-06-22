@@ -29,5 +29,14 @@
     "Monday",
     "Tuesday"
   ],
+  "event_utc_offset": "-04:00",
+  "event_dates": {
+    "Thursday": "2026-06-18",
+    "Friday": "2026-06-19",
+    "Saturday": "2026-06-20",
+    "Sunday": "2026-06-21",
+    "Monday": "2026-06-22",
+    "Tuesday": "2026-06-23"
+  },
   "published_data_url": "https://ianbeatty.com/ninjatimes/data/athletes.json"
 }
