@@ -277,21 +277,22 @@ function dcChecks(r) {
   return `<span class="ran-check" title="${esc(title)}">${'✓'.repeat(done.length)}</span>`;
 }
 
-// Run order with a green check once the athlete has run (table cell).
+// Run order: once the athlete is in the results they've run, and the captured
+// position is stale/obsolete — show a green check instead. Only an athlete who
+// hasn't run yet shows their upcoming queue position. (table cell)
 function runOrderCell(r) {
   if (r.event === 'DC') return dcChecks(r);
-  const ro = String(r.run_order ?? '');
-  const check = (r.has_run && /^\d+$/.test(ro)) ? ' <span class="ran-check" title="Has run">✓</span>' : '';
-  return `${esc(ro)}${check}`;
+  if (r.has_run) return '<span class="ran-check" title="Has run">✓</span>';
+  return esc(String(r.run_order ?? ''));
 }
 
-// Run order for the compact card (#N, with the same check).
+// Same, for the compact card (#N for upcoming).
 function runOrderShort(r) {
   if (r.event === 'DC') return dcChecks(r);
+  if (r.has_run) return '<span class="ran-check" title="Has run">✓</span>';
   const ro = String(r.run_order ?? '');
   if (!ro || ro === 'n/a') return '';
-  if (ro === 'TBA') return 'TBA';
-  return '#' + esc(ro) + (r.has_run ? ' <span class="ran-check">✓</span>' : '');
+  return ro === 'TBA' ? 'TBA' : '#' + esc(ro);
 }
 
 // Compact mobile card: name + three dense lines (no labels).
