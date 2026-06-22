@@ -562,6 +562,7 @@ def add_results_data(result: dict, settings: dict, fetcher: Fetcher,
             "final": final, "in_progress": (not final and bool(all_places)),
             "started": bool(all_places), "hash": digest,
             "stable_count": stable_count, "places": my_places, "dc_done": dc_done,
+            "dc_total": len(dc_subevents) if event == "DC" else 0,
         }
         log.info("  results %-34s finishers=%-3d final=%s",
                  key, len(all_places), state[key]["final"])
@@ -602,7 +603,20 @@ def assign_places(result: dict, qualifying: set[str]) -> None:
             wn = None
         started = bool(st.get("started"))
         current = current_wave.get(key)           # lowest wave still queued, or None
-        if final:
+        dc_total = st.get("dc_total", 0)
+        if row["event"] == "DC" and dc_total:
+            # DC runs as 3 sub-events across multiple days, so its run-order wave
+            # frontier is unreliable (wave numbers aren't time-ordered, and finished
+            # orders linger). Read completion from the sub-events instead: all done
+            # -> this athlete's DC is over (hide it); some done -> still in progress.
+            n_done = len(row["dc_done"])
+            if final or n_done >= dc_total:
+                row["wave_state"] = "over"
+            elif n_done > 0:
+                row["wave_state"] = "in_progress"
+            else:
+                row["wave_state"] = "upcoming"
+        elif final:
             row["wave_state"] = "over"            # whole event done -> wave done too
         elif wn is not None and current is not None:
             if wn < current:
