@@ -274,6 +274,20 @@ def parse_schedule_table(html: str, base_url: str = "") -> list[ScheduleEntry]:
 
 # --- ninjaworks embed -------------------------------------------------------
 
+def parse_pagination_urls(html: str) -> list[str]:
+    """Pagination link hrefs (those carrying a page= param) from an embed, if any.
+
+    Long run orders split across pages via ?run_order_competition_id=…&page=N.
+    """
+    soup = BeautifulSoup(html, "lxml")
+    urls: list[str] = []
+    for pag in soup.select(".pagination"):
+        for a in pag.find_all("a", href=True):
+            if "page=" in a["href"] and a["href"] not in urls:
+                urls.append(a["href"])
+    return urls
+
+
 def extract_embed_src(html: str) -> str | None:
     """Find the ninjaworks (or any) iframe src on a WNL rig page."""
     soup = BeautifulSoup(html, "lxml")

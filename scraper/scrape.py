@@ -148,6 +148,34 @@ def suggest_names(name: str, all_names: list[str]) -> list[str]:
 
 # --- core build -------------------------------------------------------------
 
+def fetch_pages(fetcher: Fetcher, embed_src: str, max_pages: int = 25) -> list[str]:
+    """Fetch a ninjaworks embed and follow its pagination, returning each page's HTML.
+
+    Long run orders split across pages (?run_order_competition_id=…&page=N); without
+    following them, later waves — i.e. later run-order positions — are never seen.
+    """
+    htmls: list[str] = []
+    seen: set[str] = set()
+    queue = [embed_src]
+    while queue and len(htmls) < max_pages:
+        url = queue.pop(0)
+        base = url.split("#")[0]
+        if base in seen:
+            continue
+        seen.add(base)
+        try:
+            html = fetcher.get(url, referer=True)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("page fetch failed (%s): %s", url, exc)
+            continue
+        htmls.append(html)
+        for href in P.parse_pagination_urls(html):
+            nxt = urljoin(embed_src, href)
+            if nxt.split("#")[0] not in seen:
+                queue.append(nxt)
+    return htmls
+
+
 def build(settings: dict, athletes: list[dict], fetcher: Fetcher,
           max_pages: int | None = None) -> dict:
     base = settings["base_url"]
@@ -191,26 +219,35 @@ def build(settings: dict, athletes: list[dict], fetcher: Fetcher,
         event, rig = info.get("event"), info.get("rig")
         rig_url = rig_slugs[slug]
         try:
-            rig_html = fetcher.get(rig_url)
-            embed_src = P.extract_embed_src(rig_html)
+            embed_src = P.extract_embed_src(fetcher.get(rig_url))
             if not embed_src:
                 log.warning("No embed iframe on %s", rig_url)
                 continue
-            embed_html = fetcher.get(embed_src, referer=True)
-            page = P.parse_embed(embed_html)
+            pages = fetch_pages(fetcher, embed_src)
         except Exception as exc:  # noqa: BLE001 — one bad page shouldn't sink the run
             log.warning("Failed rig %s: %s", slug, exc)
             continue
-        log.info("  %-26s %2d waves, %3d athletes", slug, page.wave_count, len(page.rows))
-        for r in page.rows:
-            tier = r.tier or info.get("tier")
-            appearances.append({
-                "name": r.name, "name_key": r.name_key, "athlete_id": r.athlete_id,
-                "tier": tier, "division": r.division, "division_key": r.division_key,
-                "event": event, "rig": rig, "wave": r.wave, "weekday": r.weekday,
-                "time_disp": r.time_disp, "time_min": r.time_min, "position": r.position,
-            })
-            populated.add((event, r.division_key))
+        seen_ids: set[str] = set()
+        n_waves = n_rows = 0
+        for html in pages:
+            page = P.parse_embed(html)
+            n_waves += page.wave_count
+            for r in page.rows:
+                if r.athlete_id and r.athlete_id in seen_ids:
+                    continue   # row repeated across the page boundary
+                if r.athlete_id:
+                    seen_ids.add(r.athlete_id)
+                tier = r.tier or info.get("tier")
+                appearances.append({
+                    "name": r.name, "name_key": r.name_key, "athlete_id": r.athlete_id,
+                    "tier": tier, "division": r.division, "division_key": r.division_key,
+                    "event": event, "rig": rig, "wave": r.wave, "weekday": r.weekday,
+                    "time_disp": r.time_disp, "time_min": r.time_min, "position": r.position,
+                })
+                populated.add((event, r.division_key))
+                n_rows += 1
+        log.info("  %-26s %2d waves, %3d athletes (%d page%s)",
+                 slug, n_waves, n_rows, len(pages), "" if len(pages) == 1 else "s")
 
     # 3) name index
     name_index: dict[str, list[dict]] = {}
@@ -314,6 +351,15 @@ def build(settings: dict, athletes: list[dict], fetcher: Fetcher,
         if k not in current_wave or a["wave"] < current_wave[k]:
             current_wave[k] = a["wave"]
     result["_current_wave"] = current_wave
+    # Athlete ids still in each run order — used to tell a genuinely-upcoming event
+    # (someone queued who hasn't run) from a "restored" run order (everyone still
+    # listed has already finished).
+    run_order_ids: dict[str, set] = {}
+    for a in appearances:
+        if a["athlete_id"]:
+            k = f'{a["tier"]}|{a["division_key"]}|{a["event"]}'
+            run_order_ids.setdefault(k, set()).add(a["athlete_id"])
+    result["_run_order_ids"] = {k: sorted(v) for k, v in run_order_ids.items()}
     return result
 
 
@@ -414,7 +460,7 @@ def add_results_data(result: dict, settings: dict, fetcher: Fetcher,
     results_pages = settings.get("results_pages", {})
     event_labels = settings.get("results_event_labels", {})
     prev_state = (prev or {}).get("results_state", {})
-    run_remaining = result.get("_run_remaining", {})
+    run_order_ids = result.get("_run_order_ids", {})
 
     # Discover the results embed + nav (division/event id maps) per tier in use.
     bases: dict[int, str] = {}
@@ -459,15 +505,22 @@ def add_results_data(result: dict, settings: dict, fetcher: Fetcher,
         pst = prev_state.get(key, {})
         stable = bool(all_places) and digest == pst.get("hash")
         stable_count = (pst.get("stable_count", 0) + 1) if stable else 0
-        empty_runorder = run_remaining.get(key, 0) == 0
-        # Final when the standings settle: an empty run order + one stable scrape
-        # (fast), OR results unchanged across a few scrapes (slow). The slow path
-        # survives a run order that repopulates after the event ("restored" waves).
-        # Soft-latched: stays final while the standings don't change, but drops if
-        # they do — e.g. a multi-day event resuming the next day.
-        final = (bool(all_places)
-                 and ((empty_runorder and stable_count >= 1) or stable_count >= 2)
-                 ) or (bool(pst.get("final")) and stable)
+        # "Settled" = nobody is genuinely still queued: the run order is empty, or
+        # everyone still listed has already finished (a "restored"/repopulated run
+        # order). If anyone in the run order is absent from the results, the event
+        # is still upcoming/running — don't finalize, even if the results table
+        # happens to be unchanged (e.g. a partial Discipline Circuit Overall that
+        # isn't moving). Re-evaluated each scrape, so it self-corrects.
+        run_ids = set(run_order_ids.get(key, []))
+        results_ids = set(all_places)
+        ran_frac = (sum(1 for i in run_ids if i in results_ids) / len(run_ids)
+                    if run_ids else 1.0)
+        # Settled = nobody genuinely still queued: run order empty, or most of those
+        # still listed have already finished (a "restored" run order — ~99% overlap).
+        # A genuinely-upcoming event has almost none of its run-order athletes in the
+        # results yet (~2%), so a simple majority cleanly separates the two.
+        settled = ran_frac >= 0.5
+        final = bool(all_places) and settled and stable_count >= 1
         state[key] = {
             "final": final, "in_progress": (not final and bool(all_places)),
             "started": bool(all_places), "hash": digest,
@@ -638,6 +691,7 @@ def main(argv=None) -> int:
     assign_places(result, set(settings.get("qualifying_events", ["Stage 2", "Stage 3"])))
     result.pop("_run_remaining", None)
     result.pop("_current_wave", None)
+    result.pop("_run_order_ids", None)
     result["rows"].sort(key=lambda r: (P.norm(r["athlete"]), r["sort_key"]))
 
     args.out.mkdir(parents=True, exist_ok=True)
