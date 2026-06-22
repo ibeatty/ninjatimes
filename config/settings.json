@@ -21,6 +21,7 @@
     "Stage 3": "Stage 3",
     "DC": "Discipline Circuit Overall"
   },
+  "dc_subevents": ["Endurance", "Speed", "Tech"],
   "event_day_order": [
     "Thursday",
     "Friday",

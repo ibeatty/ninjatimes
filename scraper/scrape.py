@@ -176,6 +176,19 @@ def fetch_pages(fetcher: Fetcher, embed_src: str, max_pages: int = 25) -> list[s
     return htmls
 
 
+def result_rows(fetcher: Fetcher, base: str, lb: str, cat: str) -> list:
+    """Parse a division/event results table, following pagination, deduped by id."""
+    out, seen = [], set()
+    for html in fetch_pages(fetcher, f"{base}?lb_gm_id={lb}&category={cat}"):
+        for rr in P.parse_results_table(html):
+            if rr.athlete_id and rr.athlete_id in seen:
+                continue
+            if rr.athlete_id:
+                seen.add(rr.athlete_id)
+            out.append(rr)
+    return out
+
+
 def build(settings: dict, athletes: list[dict], fetcher: Fetcher,
           max_pages: int | None = None) -> dict:
     base = settings["base_url"]
@@ -473,6 +486,7 @@ def add_results_data(result: dict, settings: dict, fetcher: Fetcher,
     base_url = settings["base_url"]
     results_pages = settings.get("results_pages", {})
     event_labels = settings.get("results_event_labels", {})
+    dc_subevents = settings.get("dc_subevents", ["Endurance", "Speed", "Tech"])
     prev_state = (prev or {}).get("results_state", {})
     run_remaining = result.get("_run_remaining", {})
     past_end = result.get("_past_end", {})
@@ -507,25 +521,35 @@ def add_results_data(result: dict, settings: dict, fetcher: Fetcher,
             continue
         key = f"{tier}|{div_key}|{event}"
         try:
-            table = P.parse_results_table(
-                fetcher.get(f"{base}?lb_gm_id={lb}&category={cat}", referer=True))
+            table = result_rows(fetcher, base, lb, cat)
         except Exception as exc:  # noqa: BLE001
             log.warning("results fetch failed %s: %s", key, exc)
             continue
         all_places = {r.athlete_id: r.place for r in table if r.athlete_id}
         my_places = {i: p for i, p in all_places.items() if i in tracked_ids}
+
+        # DC: a green check per completed sub-event. The "Overall" table is a partial
+        # aggregate (lists anyone with >=1 sub-event done, with placeholder ranks), so
+        # completion is read from each sub-event's own results table instead.
+        dc_done: dict[str, list[str]] = {}
+        if event == "DC":
+            for label in dc_subevents:
+                sub_cat = nav["events"].get(P.norm(label))
+                if not sub_cat:
+                    continue
+                try:
+                    sub_ids = {r.athlete_id for r in result_rows(fetcher, base, lb, sub_cat)
+                               if r.athlete_id}
+                except Exception:  # noqa: BLE001
+                    continue
+                for aid in tracked_ids & sub_ids:
+                    dc_done.setdefault(aid, []).append(label)
+
         digest = hashlib.md5(
             json.dumps(sorted(all_places.items())).encode()).hexdigest()[:12] if all_places else ""
-
         pst = prev_state.get(key, {})
         stable = bool(all_places) and digest == pst.get("hash")
         stable_count = (pst.get("stable_count", 0) + 1) if stable else 0
-        # "Settled" = nobody is genuinely still queued: the run order is empty, or
-        # everyone still listed has already finished (a "restored"/repopulated run
-        # order). If anyone in the run order is absent from the results, the event
-        # is still upcoming/running — don't finalize, even if the results table
-        # happens to be unchanged (e.g. a partial Discipline Circuit Overall that
-        # isn't moving). Re-evaluated each scrape, so it self-corrects.
         # Final once results are present AND the event is over: the run order is
         # empty (normal completion), or we're past its scheduled end time. The
         # scheduled-end path keeps multi-day DC and "restored" run orders correct —
@@ -537,7 +561,7 @@ def add_results_data(result: dict, settings: dict, fetcher: Fetcher,
         state[key] = {
             "final": final, "in_progress": (not final and bool(all_places)),
             "started": bool(all_places), "hash": digest,
-            "stable_count": stable_count, "places": my_places,
+            "stable_count": stable_count, "places": my_places, "dc_done": dc_done,
         }
         log.info("  results %-34s finishers=%-3d final=%s",
                  key, len(all_places), state[key]["final"])
@@ -566,6 +590,7 @@ def assign_places(result: dict, qualifying: set[str]) -> None:
         row["event_final"] = final
         row["event_in_progress"] = bool(st.get("in_progress"))
         row["has_run"] = has_run
+        row["dc_done"] = st.get("dc_done", {}).get(aid, [])  # DC sub-events completed
         row["place"] = places.get(aid, "") if final else ""
 
         # Wave status is collective: the lowest wave still in the run order is the

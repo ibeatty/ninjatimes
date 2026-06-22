@@ -269,8 +269,17 @@ function waveIcon(r) {
   return '';
 }
 
+// DC has no single run order; show one green check per completed sub-event (0–3).
+function dcChecks(r) {
+  const done = r.dc_done || [];
+  if (!done.length) return '';
+  const title = `${done.join(', ')} done (${done.length} of 3)`;
+  return `<span class="ran-check" title="${esc(title)}">${'✓'.repeat(done.length)}</span>`;
+}
+
 // Run order with a green check once the athlete has run (table cell).
 function runOrderCell(r) {
+  if (r.event === 'DC') return dcChecks(r);
   const ro = String(r.run_order ?? '');
   const check = (r.has_run && /^\d+$/.test(ro)) ? ' <span class="ran-check" title="Has run">✓</span>' : '';
   return `${esc(ro)}${check}`;
@@ -278,6 +287,7 @@ function runOrderCell(r) {
 
 // Run order for the compact card (#N, with the same check).
 function runOrderShort(r) {
+  if (r.event === 'DC') return dcChecks(r);
   const ro = String(r.run_order ?? '');
   if (!ro || ro === 'n/a') return '';
   if (ro === 'TBA') return 'TBA';
