@@ -131,7 +131,7 @@ def wave_start_str(weekday: str | None, time_disp: str | None) -> str:
     wd = P.weekday_abbr(weekday)
     if wd and time_disp:
         return f"{wd} {time_disp}"
-    return time_disp or ""
+    return time_disp or wd or ""
 
 
 def suggest_names(name: str, all_names: list[str]) -> list[str]:
@@ -678,7 +678,8 @@ def assign_places(result: dict, qualifying: set[str]) -> None:
 # --- head-to-head -----------------------------------------------------------
 
 def add_h2h_rows(result: dict, settings: dict, fetcher: Fetcher,
-                 athletes: list[dict], day_order: list[str]) -> None:
+                 athletes: list[dict], day_order: list[str],
+                 prev: dict | None = None) -> None:
     """Add Head-to-Head rows — a track parallel to the tiers.
 
     H2H has one embed with a wave per division; the listed order is the H2H
@@ -687,39 +688,64 @@ def add_h2h_rows(result: dict, settings: dict, fetcher: Fetcher,
     path = settings.get("h2h_page")
     if not path:
         return
+
+    page = None
     try:
         src = P.extract_embed_src(fetcher.get(urljoin(settings["base_url"], path)))
-        if not src:
-            return
-        page = P.parse_embed(fetcher.get(src, referer=True))
+        if src:
+            page = P.parse_embed(fetcher.get(src, referer=True))
     except Exception as exc:  # noqa: BLE001 — H2H is a bonus; never sink the run
         log.warning("H2H scrape failed: %s", exc)
-        return
 
-    by_id: dict[str, P.EmbedRow] = {}
-    by_name: dict[str, P.EmbedRow] = {}
-    for r in page.rows:
-        if r.athlete_id:
-            by_id.setdefault(r.athlete_id, r)
-        by_name.setdefault(r.name_key, r)
+    added_ids: set[str] = set()
+    if page:
+        by_id: dict[str, P.EmbedRow] = {}
+        by_name: dict[str, P.EmbedRow] = {}
+        for r in page.rows:
+            if r.athlete_id:
+                by_id.setdefault(r.athlete_id, r)
+            by_name.setdefault(r.name_key, r)
 
-    added = 0
+        # The division currently underway often has its time stripped from the wave
+        # heading, leaving it with no day/time. Fall back to the earliest day present
+        # across the H2H divisions (the bracket runs on known days) so an in-progress
+        # division groups under that day instead of dropping into "Unscheduled".
+        h2h_days = [r.weekday for r in page.rows if r.weekday]
+        fallback_day = (min(h2h_days, key=lambda w: day_order.index(w) if w in day_order else 99)
+                        if h2h_days else None)
+
+        for spec in athletes:
+            r = by_id.get(spec["id"]) if spec.get("id") else None
+            if r is None:
+                r = by_name.get(spec["name_key"])
+            if r is None:
+                continue
+            weekday = r.weekday or fallback_day
+            result["rows"].append({
+                "athlete": r.name, "athlete_id": r.athlete_id,
+                "tier": "H2", "division": r.division, "event": "Head to Head",
+                "rig": "", "wave": "", "wave_start": wave_start_str(weekday, r.time_disp),
+                "run_order": str(r.position), "status": "posted",
+                "sort_key": sort_key(day_order, weekday, r.time_min),
+            })
+            if r.athlete_id:
+                added_ids.add(r.athlete_id)
+            log.info("  H2H: %s (%s) seed %d %s",
+                     r.name, r.division, r.position, wave_start_str(weekday, r.time_disp))
+
+    # H2H is one flaky embed and its rows carry no wave, so merge_previous can't
+    # rescue them. Carry forward each tracked athlete's last-known H2H row whenever
+    # this scrape didn't produce one (fetch failed, or the bracket page momentarily
+    # dropped them) so the row doesn't blink in and out between refreshes.
+    prev_h2h = {r.get("athlete_id"): r for r in (prev or {}).get("rows", [])
+                if r.get("event") == "Head to Head" and r.get("athlete_id")}
     for spec in athletes:
-        r = by_id.get(spec["id"]) if spec.get("id") else None
-        if r is None:
-            r = by_name.get(spec["name_key"])
-        if r is None:
-            continue
-        result["rows"].append({
-            "athlete": r.name, "athlete_id": r.athlete_id,
-            "tier": "H2", "division": r.division, "event": "Head to Head",
-            "rig": "", "wave": "", "wave_start": wave_start_str(r.weekday, r.time_disp),
-            "run_order": str(r.position), "status": "posted",
-            "sort_key": sort_key(day_order, r.weekday, r.time_min),
-        })
-        added += 1
-        log.info("  H2H: %s (%s) seed %d %s",
-                 r.name, r.division, r.position, wave_start_str(r.weekday, r.time_disp))
+        aid = spec.get("id")
+        if aid and aid not in added_ids and aid in prev_h2h:
+            result["rows"].append(dict(prev_h2h[aid]))
+            log.info("  H2H: %s carried forward (not in this scrape)", spec.get("name", aid))
+
+    result["counts"]["rows"] = len(result["rows"])
     result["counts"]["rows"] = len(result["rows"])
 
 
@@ -761,7 +787,7 @@ def main(argv=None) -> int:
         except Exception as exc:  # noqa: BLE001 — results are a bonus; never sink the run
             log.warning("results stage failed (continuing without placements): %s", exc)
             result.setdefault("results_state", {})
-        add_h2h_rows(result, settings, fetcher, athletes, settings.get("event_day_order", []))
+        add_h2h_rows(result, settings, fetcher, athletes, settings.get("event_day_order", []), prev)
     finally:
         fetcher.close()
 
