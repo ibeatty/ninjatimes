@@ -327,6 +327,11 @@ function cardHtml(r) {
 }
 
 function statusPill(r) {
+  if (r.event === 'Head to Head') {                 // H2H: division-level status only
+    if (r.wave_state === 'in_progress') return ' <span class="pill pill-live">in progress</span>';
+    if (r.wave_state === 'over') return ' <span class="pill pill-done keep">done</span>';
+    return '';                                        // upcoming — the start time says when
+  }
   if (r.status === 'did_not_qualify') return ' <span class="pill pill-dnq keep">DNQ</span>';
   if (r.status === 'completed') return ' <span class="pill pill-done keep">ran</span>';
   return '';

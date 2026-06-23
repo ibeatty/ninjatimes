@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from urllib.parse import parse_qs, urlparse
 
 from bs4 import BeautifulSoup
 
@@ -384,6 +385,20 @@ def parse_embed(html: str, count_tester_in_position: bool = False) -> EmbedPage:
 
 _LBGM_RE = re.compile(r"lb_gm_id=(\d+)")
 _CAT_RE = re.compile(r"category=(\d+)")
+
+
+def parse_h2h_view_id(html: str, view: str) -> str | None:
+    """The ``lb_gm_id`` for a named view in the H2H results embed.
+
+    Unlike the per-tier results embed, the H2H results widget selects the *view*
+    (Overall / Bracket / Best Runs / All Runs) via ``lb_gm_id`` and the division via a
+    ``division=<Name>`` query param. Returns the id for ``view`` (e.g. 'Overall').
+    """
+    soup = BeautifulSoup(html, "lxml")
+    for a in soup.select("ul.nav-pills a"):
+        if a.get_text(strip=True).lower() == view.lower():
+            return parse_qs(urlparse(a.get("href", "")).query).get("lb_gm_id", [None])[0]
+    return None
 
 
 def parse_results_nav(html: str) -> dict:

@@ -134,6 +134,7 @@ tbody tr:hover { background: rgba(255,255,255,.025); }
 /* status pills + row treatments */
 .pill { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 700; }
 .pill-tba  { background: color-mix(in srgb, var(--tba) 22%, transparent); color: var(--tba); }
+.pill-live { background: color-mix(in srgb, var(--accent-2) 22%, transparent); color: var(--accent-2); }
 .pill-dnq  { background: color-mix(in srgb, var(--dnq) 20%, transparent); color: var(--dnq); }
 .pill-done { background: color-mix(in srgb, var(--done) 25%, transparent); color: var(--done); }
 tr.row-tba td { color: var(--muted); }
