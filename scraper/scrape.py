@@ -134,6 +134,16 @@ def wave_start_str(weekday: str | None, time_disp: str | None) -> str:
     return time_disp or wd or ""
 
 
+def _weekday_name(date_str: str | None) -> str | None:
+    """Full weekday name for an ISO date (e.g. '2026-06-23' -> 'Tuesday'), or None."""
+    if not date_str:
+        return None
+    try:
+        return datetime.fromisoformat(date_str).strftime("%A")
+    except ValueError:
+        return None
+
+
 def suggest_names(name: str, all_names: list[str]) -> list[str]:
     """'Did you mean' hints for an unmatched preset name."""
     hits = get_close_matches(name, all_names, n=4, cutoff=0.6)
@@ -697,6 +707,14 @@ def add_h2h_rows(result: dict, settings: dict, fetcher: Fetcher,
     except Exception as exc:  # noqa: BLE001 — H2H is a bonus; never sink the run
         log.warning("H2H scrape failed: %s", exc)
 
+    # The bracket's day, used both for a timeless in-progress division and to repair a
+    # carried-forward row from before this fix. A division whose heading lost its time
+    # (the one underway) parses no day, and once the whole bracket is live none of the
+    # headings carry a time — so borrowing from siblings isn't enough. Resolve it
+    # robustly: an explicit config value, else the championship's final day (H2H is the
+    # finale). Falls through to the earliest sibling day only if neither is set.
+    bracket_day = settings.get("h2h_day") or _weekday_name(settings.get("event_end_date"))
+
     added_ids: set[str] = set()
     if page:
         by_id: dict[str, P.EmbedRow] = {}
@@ -706,13 +724,10 @@ def add_h2h_rows(result: dict, settings: dict, fetcher: Fetcher,
                 by_id.setdefault(r.athlete_id, r)
             by_name.setdefault(r.name_key, r)
 
-        # The division currently underway often has its time stripped from the wave
-        # heading, leaving it with no day/time. Fall back to the earliest day present
-        # across the H2H divisions (the bracket runs on known days) so an in-progress
-        # division groups under that day instead of dropping into "Unscheduled".
         h2h_days = [r.weekday for r in page.rows if r.weekday]
-        fallback_day = (min(h2h_days, key=lambda w: day_order.index(w) if w in day_order else 99)
-                        if h2h_days else None)
+        fallback_day = bracket_day or (
+            min(h2h_days, key=lambda w: day_order.index(w) if w in day_order else 99)
+            if h2h_days else None)
 
         for spec in athletes:
             r = by_id.get(spec["id"]) if spec.get("id") else None
@@ -742,7 +757,12 @@ def add_h2h_rows(result: dict, settings: dict, fetcher: Fetcher,
     for spec in athletes:
         aid = spec.get("id")
         if aid and aid not in added_ids and aid in prev_h2h:
-            result["rows"].append(dict(prev_h2h[aid]))
+            kept = dict(prev_h2h[aid])
+            # Repair a row stored before the day fix (no day -> "Unscheduled").
+            if bracket_day and kept.get("sort_key", 10 ** 9) // 10000 >= len(day_order):
+                kept["sort_key"] = sort_key(day_order, bracket_day, None)
+                kept["wave_start"] = wave_start_str(bracket_day, None)
+            result["rows"].append(kept)
             log.info("  H2H: %s carried forward (not in this scrape)", spec.get("name", aid))
 
     result["counts"]["rows"] = len(result["rows"])
